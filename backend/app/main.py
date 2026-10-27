@@ -1,6 +1,7 @@
 import json
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path, PureWindowsPath
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -17,15 +18,16 @@ from .settings import CORS_ORIGINS, MAX_UPLOAD_BYTES, UPLOAD_DIR
 from .worker import celery_app, process_artifact
 from ml.pipeline import embed_text
 
-app = FastAPI(title="SthalaSutra API", version="0.2.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    initialize_database()
+    yield
+
+
+app = FastAPI(title="SthalaSutra API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 logger = logging.getLogger(__name__)
-
-
-@app.on_event("startup")
-def startup():
-    initialize_database()
 
 
 def artifact_payload(db, row: Artifact, passage: Passage | None = None) -> dict:
@@ -51,10 +53,14 @@ def health():
 @app.get("/ready")
 def ready():
     """Readiness check: database and background job broker are available."""
-    with SessionLocal() as db:
-        db.execute(text("SELECT 1"))
-    with celery_app.connection_for_read() as connection:
-        connection.ensure_connection(max_retries=0)
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+        with celery_app.connection_for_read() as connection:
+            connection.ensure_connection(max_retries=0)
+    except Exception as exc:
+        logger.warning("Readiness check failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Database or background queue is unavailable.") from exc
     return {"status": "ready"}
 
 

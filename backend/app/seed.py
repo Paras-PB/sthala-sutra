@@ -1,4 +1,5 @@
 """Create three clearly labeled synthetic field-note samples and queue ingestion."""
+import os
 import textwrap
 import uuid
 from pathlib import Path
@@ -12,7 +13,7 @@ from .settings import UPLOAD_DIR
 from .worker import process_artifact
 
 ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_DIR = ROOT / "data" / "sample"
+SAMPLE_DIR = Path(os.getenv("SAMPLE_DIR", str(ROOT / "data" / "sample")))
 SAMPLES = [
     {"title":"Adalaj Stepwell · Sample field note", "category":"stepwell", "era":"15th century", "place":"Adalaj Stepwell", "region":"Gujarat", "lat":23.1667, "lng":72.5833,
      "body":"Adalaj ni Vav stands north of Ahmedabad. Its five storeys descend through carved pillars and shaded landings. Local memory connects the stepwell with Queen Rudabai and the water routes of the old settlement."},

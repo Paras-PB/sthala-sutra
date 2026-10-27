@@ -8,7 +8,17 @@ from .models import Artifact
 from .settings import BROKER_URL
 
 celery_app = Celery("heritagelens", broker=BROKER_URL, backend=BROKER_URL)
-celery_app.conf.update(task_track_started=True, task_acks_late=True, worker_prefetch_multiplier=1)
+celery_app.conf.update(
+    task_track_started=True,
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    worker_prefetch_multiplier=1,
+    broker_connection_retry_on_startup=True,
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    result_expires=3600,
+)
 
 
 @celery_app.task(bind=True, name="heritage.process_artifact", max_retries=3)
