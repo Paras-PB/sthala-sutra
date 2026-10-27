@@ -5,6 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const standaloneRoot = path.join(projectRoot, ".next", "standalone");
+const serverEnvironment = { ...process.env };
+
+// `npm start` is the local standalone path; Compose supplies its own service URL.
+if (!serverEnvironment.HERITAGE_API_URL?.trim()) {
+  serverEnvironment.HERITAGE_API_URL = "http://127.0.0.1:8000";
+}
 
 await access(path.join(standaloneRoot, "server.js"));
 await cp(path.join(projectRoot, ".next", "static"), path.join(standaloneRoot, ".next", "static"), { recursive: true, force: true });
@@ -12,7 +18,7 @@ await cp(path.join(projectRoot, "public"), path.join(standaloneRoot, "public"), 
 
 const server = spawn(process.execPath, ["server.js"], {
   cwd: standaloneRoot,
-  env: process.env,
+  env: serverEnvironment,
   stdio: "inherit",
 });
 
