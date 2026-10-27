@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Archive, ArrowDownToLine, ArrowUpRight, BookOpen, ChevronDown, Compass, FileImage, Filter, Layers3, LoaderCircle, MapPin, Search, Sparkles, UploadCloud, X } from "lucide-react";
+import type { ArchiveArtifact } from "@/types/archive";
 
-type Artifact = { id: string; title: string; original_filename: string; media_type: string; category: string; era: string | null; language: string | null; status: string; error_message: string | null; latitude: number | null; longitude: number | null; created_at: string; place: {name: string; region: string | null} | null; original_text: string | null; translated_text: string | null; image_url: string };
-type SearchHit = { artifact: Artifact; original_text: string; translated_text: string | null; page_number: number; score: number };
+type Artifact = ArchiveArtifact;
+type SearchHit = { artifact: ArchiveArtifact; original_text: string; translated_text: string | null; page_number: number; score: number };
 const HeritageMap = dynamic(() => import("@/components/HeritageMap"), { ssr: false, loading: () => <div className="map-loading">Preparing map…</div> });
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const asset = (path: string) => path.startsWith("http") ? path : `${API}${path}`;
 
 export default function Home() {
@@ -22,20 +23,38 @@ export default function Home() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selected, setSelected] = useState<Artifact | null>(null);
   const [error, setError] = useState("");
+  const archiveRequest = useRef<AbortController | null>(null);
 
   const fetchItems = useCallback(async () => {
+    archiveRequest.current?.abort();
+    const controller = new AbortController();
+    archiveRequest.current = controller;
     const params = new URLSearchParams();
     if (category) params.set("category", category);
     if (era) params.set("era", era);
     if (region) params.set("region", region);
     try {
-      const res = await fetch(`${API}/api/artifacts?${params}`);
+      const res = await fetch(`${API}/api/artifacts?${params}`, { signal: controller.signal });
       if (!res.ok) throw new Error("Archive API is not available.");
-      setItems(await res.json()); setError("");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not load archive."); }
+      const body: unknown = await res.json();
+      if (!Array.isArray(body)) throw new Error("The archive API returned an invalid response.");
+      setItems(body as Artifact[]); setError("");
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      setError(e instanceof Error ? e.message : "Could not load archive.");
+    } finally {
+      if (archiveRequest.current === controller) archiveRequest.current = null;
+    }
   }, [category, era, region]);
 
-  useEffect(() => { void fetchItems(); const timer = window.setInterval(fetchItems, 5000); return () => window.clearInterval(timer); }, [fetchItems]);
+  useEffect(() => { void fetchItems(); }, [fetchItems]);
+  useEffect(() => () => archiveRequest.current?.abort(), []);
+  const hasPendingItems = items.some(item => item.status === "queued" || item.status === "processing");
+  useEffect(() => {
+    if (!hasPendingItems) return;
+    const timer = window.setInterval(() => void fetchItems(), 5000);
+    return () => window.clearInterval(timer);
+  }, [fetchItems, hasPendingItems]);
 
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -48,7 +67,9 @@ export default function Home() {
       if (region) params.set("region", region);
       const res = await fetch(`${API}/api/search?${params}`);
       if (!res.ok) throw new Error("Search failed. Check the API and embedding model setup.");
-      setHits(await res.json());
+      const body: unknown = await res.json();
+      if (!Array.isArray(body)) throw new Error("Search returned an invalid response.");
+      setHits(body as SearchHit[]);
     } catch (e) { setError(e instanceof Error ? e.message : "Search failed."); }
     finally { setBusy(false); }
   }
@@ -63,8 +84,8 @@ export default function Home() {
     const form = new FormData(formElement);
     try {
       const res = await fetch(`${API}/api/artifacts`, { method: "POST", body: form });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.detail || "Upload failed.");
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Upload failed.");
       setUploadOpen(false); formElement.reset(); await fetchItems();
     } catch (e) { setError(e instanceof Error ? e.message : "Upload failed."); }
     finally { setBusy(false); }
