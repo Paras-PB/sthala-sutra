@@ -11,3 +11,4 @@ data/sample/*.png
 .vercel/
 .DS_Store
 work/
+supabase/.temp/
