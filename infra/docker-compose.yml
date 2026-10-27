@@ -15,6 +15,11 @@ services:
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
   api:
     build:
       context: ..
@@ -30,7 +35,7 @@ services:
     volumes: ["uploads:/app/uploads", "modelcache:/models", "../ml:/app/ml:ro"]
     depends_on:
       db: {condition: service_healthy}
-      redis: {condition: service_started}
+      redis: {condition: service_healthy}
   worker:
     build:
       context: ..
@@ -45,7 +50,7 @@ services:
     volumes: ["uploads:/app/uploads", "modelcache:/models", "../ml:/app/ml:ro"]
     depends_on:
       db: {condition: service_healthy}
-      redis: {condition: service_started}
+      redis: {condition: service_healthy}
   web:
     build:
       context: ../frontend
