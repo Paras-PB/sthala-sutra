@@ -94,7 +94,7 @@ export default function Home() {
       const place = nearbyPlaceFromQuery(query);
       if (place) {
         const params = new URLSearchParams({ near: place });
-        const response = await fetch(`/api/nearby?${params}`);
+        const response = await fetch(`/api/nearby?${params}`, { cache: "no-store" });
         if (!response.ok) throw new Error(await responseError(response, "Nearby references could not be loaded."));
         const body = await response.json() as { results?: NearbyReference[] };
         if (!Array.isArray(body.results)) throw new Error("Nearby lookup returned an invalid response.");

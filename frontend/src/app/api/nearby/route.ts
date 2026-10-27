@@ -6,8 +6,10 @@ export const maxDuration = 30;
 
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
 const QUERY_TIMEOUT_MS = 10_000;
-const LANDMARK_CANDIDATE = /\b(?:palace|chhatri|temple|mandir|monument|museum|fort|mausoleum|memorial|cenotaph|stepwell|haveli|durbar|ruin|tomb|gate|darwaza|mosque|church|kund|baoli|vav|well|rajwada|bagh|daly|gandhi hall)\b/i;
-const LANDMARK_TITLE = /\b(?:palace|chhatri|temple|mandir|monument|museum|fort|mausoleum|cenotaph|stepwell|haveli|durbar|ruin|tomb|gate|darwaza|mosque|church|kund|baoli|vav|well)\b/i;
+const LANDMARK_CANDIDATE = /\b(?:palace|mahal|minar|stupa|gateway|observatory|gurdwara|gurudwara|chhatri|temple|mandir|monument|museum|fort|mausoleum|memorial|cenotaph|stepwell|haveli|durbar|ruin|tomb|gate|darwaza|mosque|church|kund|baoli|vav|well|rajwada|bagh|daly|gandhi hall)\b/i;
+const LANDMARK_TITLE = /\b(?:palace|mahal|minar|stupa|gateway|observatory|gurdwara|gurudwara|chhatri|temple|mandir|monument|museum|fort|mausoleum|cenotaph|stepwell|haveli|durbar|ruin|tomb|gate|darwaza|mosque|church|kund|baoli|vav|well)\b/i;
+const TRANSPORT_TITLE = /\b(?:airport|bus|metro|railway|station|train)\b/i;
+const PRIORITY_HERITAGE_CATEGORY = /\b(?:world heritage|unesco|monuments? of national importance|protected monuments?)\b/i;
 const HERITAGE_CATEGORY = /\b(?:cultural heritage|heritage sites?|historic(?:al)? buildings?|historic monuments?|palaces?|chhatris?|temples?|mandirs?|monuments?|museums?|forts?|stepwells?|havelis?|archaeological sites?)\b/i;
 const HERITAGE_DESCRIPTION = /\b(?:is|was|are|were)\s+(?:(?:a|an|the)\s+)?(?:(?:historical|historic|jain|hindu|royal|maratha|architectural|archaeological)\s+){0,3}(?:palace|chhatri|temple|mandir|monument|museum|fort|mausoleum|cenotaph|stepwell|haveli|durbar|ruin|tomb|gate|darwaza|mosque|church|kund|baoli|vav|well)\b/i;
 
@@ -85,12 +87,16 @@ export async function GET(request: NextRequest) {
     }
 
     const places = (geosearch.query?.geosearch || [])
-      .filter((place) => Boolean(place.pageid) && Number.isFinite(place.lat) && Number.isFinite(place.lon) && LANDMARK_CANDIDATE.test(place.title || ""))
+      .filter((place) => Boolean(place.pageid)
+        && Number.isFinite(place.lat)
+        && Number.isFinite(place.lon)
+        && LANDMARK_CANDIDATE.test(place.title || "")
+        && !TRANSPORT_TITLE.test(place.title || ""))
       .slice(0, 20);
     if (places.length === 0) {
       return NextResponse.json(
         { near, radius_meters: 10_000, source: "Wikipedia geosearch", results: [] },
-        { headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" } },
+        { headers: { "Cache-Control": "no-store" } },
       );
     }
 
@@ -134,10 +140,15 @@ export async function GET(request: NextRequest) {
         categories,
       }];
     });
+    results.sort((a, b) => {
+      const aPriority = a.categories.some((category) => PRIORITY_HERITAGE_CATEGORY.test(category));
+      const bPriority = b.categories.some((category) => PRIORITY_HERITAGE_CATEGORY.test(category));
+      return Number(bPriority) - Number(aPriority) || a.distance_meters - b.distance_meters;
+    });
 
     return NextResponse.json(
       { near, radius_meters: 10_000, source: "Wikipedia geosearch", results },
-      { headers: { "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400" } },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
