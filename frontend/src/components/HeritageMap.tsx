@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapLibreMap, Marker, NavigationControl, LngLatBounds, type MapLayerMouseEvent } from "maplibre-gl";
+import { Map as MapLibreMap, Marker, NavigationControl, LngLatBounds, setWorkerUrl, type MapLayerMouseEvent } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 import { MapPin } from "lucide-react";
 import type { ArchiveArtifact } from "@/types/archive";
+
+// MapLibre 6 needs an explicit worker URL when its ESM bundle is built by Next.js/Turbopack.
+setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
 
 type RecordItem = {
   id: string;
