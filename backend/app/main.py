@@ -36,10 +36,13 @@ def artifact_payload(db, row: Artifact, passage: Passage | None = None) -> dict:
             passage = db.query(Passage).filter(Passage.artifact_id == row.id).order_by(Passage.page_number).first()
         else:
             passage = min(row.passages, key=lambda item: item.page_number, default=None)
+    place = row.place
+    place_payload = ({"id": place.id, "name": place.name, "region": place.region,
+                      "latitude": row.latitude, "longitude": row.longitude} if place else None)
     return {"id": row.id, "title": row.title, "original_filename": row.original_filename, "media_type": row.media_type,
             "category": row.category, "era": row.era, "language": row.language, "status": row.status,
             "error_message": row.error_message, "latitude": row.latitude, "longitude": row.longitude,
-            "created_at": row.created_at, "place": row.place, "original_text": passage.original_text if passage else None,
+            "created_at": row.created_at, "place": place_payload, "original_text": passage.original_text if passage else None,
             "translated_text": passage.translated_text if passage else None,
             "image_url": f"/uploads/{row.storage_path}"}
 

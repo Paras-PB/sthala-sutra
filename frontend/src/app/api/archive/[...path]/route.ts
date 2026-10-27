@@ -5,7 +5,9 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 const MAX_PROXY_UPLOAD_BYTES = 25 * 1024 * 1024;
-const UPSTREAM_TIMEOUT_MS = 15_000;
+// Model-backed semantic search can take longer on the first CPU request while
+// the sentence-transformer initializes. Keep that cold start inside the proxy.
+const UPSTREAM_TIMEOUT_MS = 60_000;
 
 function apiError(status: number, code: string, error: string) {
   return NextResponse.json(
