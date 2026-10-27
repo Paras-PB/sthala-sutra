@@ -4,7 +4,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr t
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HF_HOME=/models/huggingface
 WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# This image runs on CPU-only hosts. Install the official CPU wheel first so
+# the general requirements file doesn't pull several gigabytes of CUDA wheels.
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple \
+        "torch==2.14.1+cpu" \
+    && pip install --no-cache-dir -r requirements.txt
+ENV PYTHONPATH=/app
 COPY backend/app /app/app
 COPY ml /app/ml
 RUN useradd --create-home --shell /usr/sbin/nologin app \
