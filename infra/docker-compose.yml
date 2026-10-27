@@ -1,0 +1,58 @@
+services:
+  db:
+    build: ./db
+    environment:
+      POSTGRES_DB: heritage
+      POSTGRES_USER: heritage
+      POSTGRES_PASSWORD: heritage
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U heritage -d heritage"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      UPLOAD_DIR: /app/uploads
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
+    ports: ["8000:8000"]
+    volumes: ["uploads:/app/uploads", "../ml:/app/ml:ro"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=1
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      UPLOAD_DIR: /app/uploads
+      TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
+    volumes: ["uploads:/app/uploads", "../ml:/app/ml:ro"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+  web:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on: [api]
+volumes:
+  pgdata:
+  uploads:

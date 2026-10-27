@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.next/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+**/uploads/
+data/sample/*.png
+.vercel/
+.DS_Store
+work/

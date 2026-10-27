@@ -1,0 +1,6 @@
+Write-Host "SthalaSutra 2-minute demo"
+Write-Host "1. Start services: docker compose -f infra/docker-compose.yml up --build"
+Write-Host "2. Seed synthetic OCR samples: docker compose -f infra/docker-compose.yml exec api python -m app.seed"
+Write-Host "3. Open http://localhost:3000; show archive filters and search for 'stepwell near Ahmedabad'."
+Write-Host "4. Open a record to compare OCR text and translation, then switch to Living map and click a pin."
+Write-Host "5. Upload one scan with a place and coordinates; show queued -> processing -> ready."
