@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 
 Image.MAX_IMAGE_PIXELS = 40_000_000
 
@@ -35,16 +35,45 @@ def ocr_document(path: Path) -> list[tuple[int, str]]:
     pages = []
     for number, image in enumerate(_images(path), start=1):
         text = pytesseract.image_to_string(image, lang="eng+hin+guj", config="--psm 6").strip()
+        language = detect_language(text)
+        if language in {"hi", "gu"}:
+            # The combined model often confuses Devanagari and Gujarati letterforms.
+            # Re-run with only the detected script and keep it when it recognizes more
+            # characters from that script; this also preserves Tesseract's mixed-script
+            # output when the focused pass is less useful.
+            tesseract_language = {"hi": "hin", "gu": "guj"}[language]
+            best_script_count = _script_character_count(text, language)
+            focused_image = ImageOps.autocontrast(ImageOps.grayscale(image))
+            if focused_image.width * focused_image.height <= 4_000_000:
+                focused_image = focused_image.resize(
+                    (focused_image.width * 2, focused_image.height * 2), Image.Resampling.LANCZOS
+                )
+            try:
+                for candidate_image in (image, focused_image):
+                    focused = pytesseract.image_to_string(
+                        candidate_image, lang=tesseract_language, config="--psm 6"
+                    ).strip()
+                    script_count = _script_character_count(focused, language)
+                    if script_count > best_script_count:
+                        text = focused
+                        best_script_count = script_count
+            finally:
+                focused_image.close()
         if text:
             pages.append((number, text))
     return pages
 
 
+def _script_character_count(text: str, language: str) -> int:
+    pattern = r"[\u0A80-\u0AFF]" if language == "gu" else r"[\u0900-\u097F]"
+    return len(re.findall(pattern, text))
+
+
 def detect_language(text: str) -> str:
-    if re.search(r"[\u0A80-\u0AFF]", text):
-        return "gu"
-    if re.search(r"[\u0900-\u097F]", text):
-        return "hi"
+    gujarati = _script_character_count(text, "gu")
+    devanagari = _script_character_count(text, "hi")
+    if max(gujarati, devanagari) >= 6:
+        return "gu" if gujarati >= devanagari else "hi"
     return "en"
 
 
