@@ -91,47 +91,32 @@ export default function Home() {
     setBusy(true); setError("");
     setNearbyResults(null); setNearbyNotice("");
     try {
-      let archiveError = "";
-      try {
-        const params = new URLSearchParams({ q: query.trim() });
-        if (category) params.set("category", category);
-        if (era) params.set("era", era);
-        if (region) params.set("region", region);
-        const res = await fetch(`${API}/api/search?${params}`);
-        if (!res.ok) throw new Error(await responseError(res, "Search failed. Check the API and embedding model setup."));
-        const body: unknown = await res.json();
-        if (!Array.isArray(body)) throw new Error("Search returned an invalid response.");
-        const results = body as SearchHit[];
-        if (results.length > 0 || !nearbyPlaceFromQuery(query)) {
-          setHits(results);
-          return;
-        }
-      } catch (e) {
-        archiveError = readableError(e, "Search failed.");
-      }
-
       const place = nearbyPlaceFromQuery(query);
       if (place) {
-        try {
-          const params = new URLSearchParams({ near: place });
-          const response = await fetch(`/api/nearby?${params}`);
-          if (!response.ok) throw new Error(await responseError(response, "Nearby references could not be loaded."));
-          const body = await response.json() as { results?: NearbyReference[] };
-          if (!Array.isArray(body.results)) throw new Error("Nearby lookup returned an invalid response.");
-          setHits([]);
-          setNearbyResults(body.results);
-          setNearbyNotice(archiveError
-            ? `The archive API is offline. These public references are from Wikipedia, within 10 km of ${place}.`
-            : `No archive passages matched. These public references are from Wikipedia, within 10 km of ${place}.`);
-        } catch (e) {
-          setHits([]);
-          setNearbyResults([]);
-          setError(readableError(e, archiveError || "Nearby lookup failed."));
-        }
-      } else {
-        setHits([]);
-        setError(archiveError);
+        const params = new URLSearchParams({ near: place });
+        const response = await fetch(`/api/nearby?${params}`);
+        if (!response.ok) throw new Error(await responseError(response, "Nearby references could not be loaded."));
+        const body = await response.json() as { results?: NearbyReference[] };
+        if (!Array.isArray(body.results)) throw new Error("Nearby lookup returned an invalid response.");
+        setHits(null);
+        setNearbyResults(body.results);
+        setNearbyNotice(`Public heritage references from Wikipedia, within 10 km of ${place}.`);
+        return;
       }
+
+      const params = new URLSearchParams({ q: query.trim() });
+      if (category) params.set("category", category);
+      if (era) params.set("era", era);
+      if (region) params.set("region", region);
+      const res = await fetch(`${API}/api/search?${params}`);
+      if (!res.ok) throw new Error(await responseError(res, "Search failed. Check the API and embedding model setup."));
+      const body: unknown = await res.json();
+      if (!Array.isArray(body)) throw new Error("Search returned an invalid response.");
+      setHits(body as SearchHit[]);
+    } catch (e) {
+      setHits([]);
+      setNearbyResults(null);
+      setError(readableError(e, "Search failed."));
     } finally {
       setBusy(false);
     }
