@@ -1,20 +1,34 @@
 """Local OCR, translation and embedding adapters used by the Celery worker."""
 import os
 import re
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
 import pytesseract
 from PIL import Image
 
+Image.MAX_IMAGE_PIXELS = 40_000_000
+
 
 def _images(path: Path):
     if path.suffix.lower() == ".pdf":
-        from pdf2image import convert_from_path
-        yield from convert_from_path(str(path), dpi=180, fmt="png")
+        from pdf2image import convert_from_path, pdfinfo_from_path
+        page_count = int(pdfinfo_from_path(str(path)).get("Pages", 0))
+        if page_count < 1:
+            raise ValueError("The PDF does not contain any readable pages.")
+        if page_count > 100:
+            raise ValueError("PDF uploads are limited to 100 pages per archive item.")
+        # Render one page at a time so a multi-page scan cannot exhaust worker memory.
+        for page_number in range(1, page_count + 1):
+            pages = convert_from_path(str(path), dpi=180, fmt="png", first_page=page_number, last_page=page_number)
+            if pages:
+                yield pages[0]
     else:
-        with Image.open(path) as image:
-            yield image.convert("RGB")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                yield image.convert("RGB")
 
 
 def ocr_document(path: Path) -> list[tuple[int, str]]:
@@ -48,8 +62,12 @@ def translate_to_english(text: str, language: str) -> str | None:
         return None
     translator = _translator()
     lang_code = {"hi": "hin_Deva", "gu": "guj_Gujr"}[language]
-    result = translator(text[:4000], src_lang=lang_code, tgt_lang="eng_Latn", max_length=512)
-    return result[0]["translation_text"] if result else None
+    chunks = _text_chunks(text, max_chars=1200)
+    translated = []
+    for offset in range(0, len(chunks), 8):
+        result = translator(chunks[offset:offset + 8], src_lang=lang_code, tgt_lang="eng_Latn", max_length=512)
+        translated.extend(item["translation_text"] for item in result if item.get("translation_text"))
+    return "\n".join(translated) if translated else None
 
 
 @lru_cache(maxsize=1)
@@ -59,7 +77,42 @@ def _embedder():
 
 
 def embed_text(text: str) -> list[float]:
-    return _embedder().encode(text, normalize_embeddings=True).tolist()
+    import numpy as np
+
+    chunks = _text_chunks(text, max_chars=700) or [text]
+    vectors = _embedder().encode(chunks, normalize_embeddings=True, batch_size=16)
+    mean_vector = vectors.mean(axis=0)
+    magnitude = float(np.linalg.norm(mean_vector))
+    if not magnitude:
+        raise ValueError("Could not create a non-empty search embedding.")
+    return (mean_vector / magnitude).tolist()
+
+
+def _text_chunks(text: str, max_chars: int) -> list[str]:
+    """Split long OCR passages at word boundaries without dropping their tail."""
+    words = text.split()
+    chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+    for word in words:
+        if current and current_length + len(word) + 1 > max_chars:
+            chunks.append(" ".join(current))
+            current = []
+            current_length = 0
+        if len(word) > max_chars:
+            for start in range(0, len(word), max_chars):
+                part = word[start:start + max_chars]
+                if current:
+                    chunks.append(" ".join(current))
+                    current = []
+                    current_length = 0
+                chunks.append(part)
+            continue
+        current.append(word)
+        current_length += len(word) + (1 if current_length else 0)
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
 
 
 def extract_entities(text: str) -> dict:
