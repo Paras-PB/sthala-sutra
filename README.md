@@ -60,7 +60,7 @@ docker compose -f infra/docker-compose.yml up --build
 docker compose -f infra/docker-compose.yml exec api python -m app.seed
 ```
 
-Open http://localhost:3000. API docs are at http://localhost:8000/docs. The first OCR/search job downloads the multilingual sentence-transformer model; the first Hindi or Gujarati translation downloads NLLB-200 (about 2.5 GB). Sample pages and route/folklore map layers are synthetic demonstration fixtures, labeled as such and not historical source material. Seed is repeatable and skips existing sample records.
+Open http://localhost:3000. API docs are at http://localhost:8000/docs. The first OCR/search job downloads the multilingual sentence-transformer model; the first Hindi or Gujarati translation downloads NLLB-200 (about 2.5 GB). Docker keeps model downloads in a named volume across restarts. Sample pages and route/folklore map layers are synthetic demonstration fixtures, labeled as such and not historical source material. Seed is repeatable and skips existing sample records.
 
 To use the Supabase database instead of Compose Postgres, copy `.env.example` to `.env` and set `DATABASE_URL` to your Supabase PostgreSQL connection URL. Use the project's Session Pooler for the long-lived API/worker. Keep the password in backend/Vercel server environment variables; never prefix it with `NEXT_PUBLIC_` or commit it. The schema migrations are in `supabase/migrations/` and match the versions recorded in Supabase.
 

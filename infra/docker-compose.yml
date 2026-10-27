@@ -23,10 +23,11 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       UPLOAD_DIR: /app/uploads
+      HF_HOME: /models/huggingface
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
     ports: ["8000:8000"]
-    volumes: ["uploads:/app/uploads", "../ml:/app/ml:ro"]
+    volumes: ["uploads:/app/uploads", "modelcache:/models", "../ml:/app/ml:ro"]
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_started}
@@ -39,8 +40,9 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       UPLOAD_DIR: /app/uploads
+      HF_HOME: /models/huggingface
       TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
-    volumes: ["uploads:/app/uploads", "../ml:/app/ml:ro"]
+    volumes: ["uploads:/app/uploads", "modelcache:/models", "../ml:/app/ml:ro"]
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_started}
@@ -56,3 +58,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  modelcache:
