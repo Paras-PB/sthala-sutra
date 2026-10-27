@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Map as MapLibreMap, Marker, NavigationControl, LngLatBounds, setWorkerUrl, type MapLayerMouseEvent } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 import { MapPin } from "lucide-react";
-import type { ArchiveArtifact } from "@/types/archive";
+import type { ArchiveArtifact, NearbyReference } from "@/types/archive";
 
 // MapLibre 6 needs an explicit worker URL when its ESM bundle is built by Next.js/Turbopack.
 setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
@@ -36,11 +36,15 @@ const emptyData: MapData = { artifacts: [], features: [] };
 export default function HeritageMap({
   api,
   filters,
+  nearby = [],
   onSelect,
+  onSelectNearby,
 }: {
   api: string;
   filters: MapFilters;
+  nearby?: NearbyReference[];
   onSelect: (artifact: ArchiveArtifact) => void;
+  onSelectNearby?: (reference: NearbyReference) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
@@ -59,8 +63,12 @@ export default function HeritageMap({
     const controller = new AbortController();
     const baseUrl = api.replace(/\/$/, "");
     fetch(`${baseUrl}/api/map${query ? `?${query}` : ""}`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("Map request failed");
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => null) as { error?: unknown; detail?: unknown } | null;
+          const message = typeof body?.error === "string" ? body.error : typeof body?.detail === "string" ? body.detail : "Map request failed.";
+          throw new Error(message);
+        }
         return response.json() as Promise<MapData>;
       })
       .then((value) => {
@@ -73,10 +81,11 @@ export default function HeritageMap({
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        setMessage("Map data is unavailable while the API is offline.");
+        const detail = error instanceof Error ? error.message : "Archive API is unavailable.";
+        setMessage(nearby.length ? "Archive map is offline; nearby public references are shown." : detail);
       });
     return () => controller.abort();
-  }, [api, query]);
+  }, [api, query, nearby.length]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
@@ -159,6 +168,20 @@ export default function HeritageMap({
         coordinates.push([longitude, latitude]);
       }
 
+      for (const reference of nearby) {
+        if (!Number.isFinite(reference.latitude) || !Number.isFinite(reference.longitude)) continue;
+        const button = document.createElement("button");
+        button.className = "map-pin discovery";
+        button.type = "button";
+        button.setAttribute("aria-label", `${reference.title} (Wikipedia reference)`);
+        button.title = `${reference.title} · Wikipedia reference`;
+        button.append(document.createElement("span"));
+        button.addEventListener("click", () => onSelectNearby?.(reference));
+        markers.push(new Marker({ element: button, anchor: "bottom" })
+          .setLngLat([reference.longitude, reference.latitude]).addTo(current));
+        coordinates.push([reference.longitude, reference.latitude]);
+      }
+
       const sourceId = "heritage-routes";
       const layerId = "heritage-routes-line";
       const selectRoute = (event: MapLayerMouseEvent) => {
@@ -205,9 +228,9 @@ export default function HeritageMap({
     };
 
     return draw();
-  }, [data, onSelect, styleReady]);
+  }, [data, nearby, onSelect, onSelectNearby, styleReady]);
 
-  const count = data.artifacts.length + data.features.length;
+  const archiveCount = data.artifacts.length + data.features.length;
   return (
     <div className="map-wrap">
       <div className="map-canvas" ref={container} />
@@ -218,7 +241,7 @@ export default function HeritageMap({
       )}
       <div className="map-legend">
         <b>THE LIVING MAP</b>
-        <span>{count} MAP RECORDS · MONUMENTS · ROUTES · FOLKLORE</span>
+        <span>{archiveCount} ARCHIVE ITEMS{nearby.length ? ` · ${nearby.length} WIKIPEDIA REFERENCES` : " · MONUMENTS · ROUTES · FOLKLORE"}</span>
       </div>
     </div>
   );

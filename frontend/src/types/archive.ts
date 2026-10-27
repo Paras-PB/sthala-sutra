@@ -16,3 +16,16 @@ export type ArchiveArtifact = {
   translated_text: string | null;
   image_url: string;
 };
+
+export type NearbyReference = {
+  id: string;
+  title: string;
+  description: string;
+  image_url: string | null;
+  latitude: number;
+  longitude: number;
+  distance_meters: number;
+  article_url: string;
+  source: string;
+  categories: string[];
+};
