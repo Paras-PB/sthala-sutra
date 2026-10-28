@@ -6,10 +6,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const MODEL = "gemini-3.8-flash";
+const MODEL = "gemini-3.1-flash-lite";
 const GOOGLE_WIKI_API = "https://en.wikipedia.org/w/api.php";
 const TIMEOUT_MS = 6_000;
 const API_TIMEOUT_MS = 6_000;
+const GENERATION_TIMEOUT_MS = 15_000;
 const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_LIMIT = 10;
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
@@ -191,8 +192,10 @@ export async function POST(request: NextRequest) {
       ].join(" "),
       prompt: `Question: ${question}\n\nSource material:\n${loaded.context}`,
       temperature: 0.25,
-      maxOutputTokens: 500,
-      abortSignal: AbortSignal.timeout(18_000),
+      maxOutputTokens: 350,
+      maxRetries: 1,
+      providerOptions: { google: { thinkingConfig: { thinkingLevel: "minimal" } } },
+      abortSignal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
     });
     return NextResponse.json({ answer: result.text.trim(), sources: loaded.sources }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
