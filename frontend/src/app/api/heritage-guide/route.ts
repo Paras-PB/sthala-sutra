@@ -6,11 +6,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const MODEL = "gemini-3.1-flash-lite";
+const MODEL = "gemini-3.5-flash-lite";
 const GOOGLE_WIKI_API = "https://en.wikipedia.org/w/api.php";
 const TIMEOUT_MS = 6_000;
 const API_TIMEOUT_MS = 6_000;
-const GENERATION_TIMEOUT_MS = 15_000;
+const GENERATION_TIMEOUT_MS = 20_000;
 const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_LIMIT = 10;
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
@@ -193,7 +193,9 @@ export async function POST(request: NextRequest) {
       prompt: `Question: ${question}\n\nSource material:\n${loaded.context}`,
       temperature: 0.25,
       maxOutputTokens: 350,
-      maxRetries: 1,
+      // Return a bounded, actionable error on a transient provider outage instead of
+      // spending most of the request budget retrying a known 429/503 response.
+      maxRetries: 0,
       providerOptions: { google: { thinkingConfig: { thinkingLevel: "minimal" } } },
       abortSignal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
     });
@@ -202,6 +204,6 @@ export async function POST(request: NextRequest) {
     console.error("Heritage guide request failed.", error instanceof Error ? error.name : "Unknown error");
     const timedOut = error instanceof Error && error.name === "TimeoutError";
     return jsonError(timedOut ? 504 : 502, timedOut ? "AI_TIMEOUT" : "AI_UNAVAILABLE",
-      timedOut ? "The heritage guide took too long to answer. Please try again." : "The heritage guide is temporarily unavailable. Check the server key and retry.");
+      timedOut ? "The heritage guide took too long to answer. Please try again." : "Gemini is temporarily busy or unavailable. Please try again shortly.");
   }
 }
