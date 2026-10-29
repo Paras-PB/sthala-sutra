@@ -1,6 +1,25 @@
+# Run from the repository root: `docker compose up --build`.
+# Compose reads ./.env (next to this file) for ${VAR} interpolation; empty or unset
+# values fall back to the defaults after ":-".
+name: sthalasutra
+
+# Shared by api and worker so both always talk to the same database, queue and models.
+x-backend-environment: &backend-environment
+  APP_ENV: ${APP_ENV:-development}
+  AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+  UPLOAD_DIR: /app/uploads
+  SAMPLE_DIR: /app/sample-data
+  HF_HOME: /models/huggingface
+  TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+
 services:
   db:
-    build: ./db
+    build: ./infra/db
     restart: unless-stopped
     environment:
       POSTGRES_DB: heritage
@@ -26,23 +45,13 @@ services:
       retries: 20
   api:
     build:
-      context: ..
+      context: .
       dockerfile: backend/Dockerfile
     environment:
-      APP_ENV: ${APP_ENV:-development}
-      AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
-      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
-      UPLOAD_DIR: /app/uploads
-      SAMPLE_DIR: /app/sample-data
-      HF_HOME: /models/huggingface
+      <<: *backend-environment
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
     ports: ["8000:8000"]
-    volumes: ["uploads:/app/uploads", "modelcache:/models", "../ml:/app/ml:ro"]
+    volumes: ["uploads:/app/uploads", "modelcache:/models"]
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -57,22 +66,11 @@ services:
       start_period: 30s
   worker:
     build:
-      context: ..
+      context: .
       dockerfile: backend/Dockerfile
     command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=1
-    environment:
-      APP_ENV: ${APP_ENV:-development}
-      AUTO_CREATE_SCHEMA: ${AUTO_CREATE_SCHEMA:-}
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://heritage:heritage@db:5432/heritage}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
-      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
-      UPLOAD_DIR: /app/uploads
-      SAMPLE_DIR: /app/sample-data
-      HF_HOME: /models/huggingface
-      TRANSLATION_MODEL: ${TRANSLATION_MODEL:-facebook/nllb-200-distilled-600M}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
-    volumes: ["uploads:/app/uploads", "modelcache:/models", "../ml:/app/ml:ro"]
+    environment: *backend-environment
+    volumes: ["uploads:/app/uploads", "modelcache:/models"]
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -87,14 +85,13 @@ services:
       start_period: 60s
   web:
     build:
-      context: ../frontend
+      context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
-    env_file:
-      - path: ../.env
-        required: false
+    # Only what the web server needs; the database URL and password stay out of this container.
     environment:
       HERITAGE_API_URL: ${HERITAGE_API_URL:-http://api:8000}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       HOSTNAME: 0.0.0.0
     ports: ["3000:3000"]
     depends_on:
@@ -108,6 +105,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
 volumes:
   pgdata:
   redisdata:

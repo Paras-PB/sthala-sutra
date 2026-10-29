@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { archiveUpstreamBase, archiveUrl } from "@/lib/archive-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +18,7 @@ function apiError(status: number, code: string, error: string) {
 }
 
 async function proxy(request: NextRequest, context: RouteContext) {
-  const configuredUrl = process.env.HERITAGE_API_URL?.trim();
-  const upstreamBase = configuredUrl || (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "");
+  const upstreamBase = archiveUpstreamBase();
   if (!upstreamBase) {
     return apiError(503, "BACKEND_NOT_CONFIGURED", "Archive API is not configured. Set HERITAGE_API_URL on the web server.");
   }
@@ -26,8 +26,7 @@ async function proxy(request: NextRequest, context: RouteContext) {
   const { path } = await context.params;
   let target: URL;
   try {
-    const base = new URL(upstreamBase.endsWith("/") ? upstreamBase : `${upstreamBase}/`);
-    target = new URL(path.map((segment) => encodeURIComponent(segment)).join("/"), base);
+    target = archiveUrl(upstreamBase, path.map((segment) => encodeURIComponent(segment)).join("/"));
     target.search = request.nextUrl.search;
   } catch {
     return apiError(500, "BACKEND_URL_INVALID", "HERITAGE_API_URL must be a valid absolute URL.");
