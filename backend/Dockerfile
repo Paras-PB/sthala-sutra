@@ -1,5 +1,9 @@
 FROM python:3.11-slim
-RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin tesseract-ocr-guj poppler-utils fonts-dejavu-core libpq-dev gcc \
+# fonts-noto-core + libfribidi0: the seed renders Gujarati/Devanagari samples with Pillow's
+# Raqm layout (its wheels bundle libraqm but load FriBiDi at runtime). No compiler is needed:
+# psycopg[binary] bundles libpq and every dependency ships cp311 manylinux wheels.
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin tesseract-ocr-guj \
+        poppler-utils fonts-dejavu-core fonts-noto-core libfribidi0 \
     && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HF_HOME=/models/huggingface
 WORKDIR /app
