@@ -26,7 +26,8 @@ const HERITAGE_DESCRIPTION = new RegExp(
   `\\b(?:is|was|are|were)\\s+(?:(?:a|an|the)\\s+)?(?:(?:historical|historic|jain|hindu|royal|maratha|architectural|archaeological)\\s+){0,3}${wordPattern(HERITAGE_NOUNS)}`,
   "i",
 );
-const TRANSPORT_TITLE = /\b(?:airport|bus|metro|railway|station|train)\b/i;
+// Transport stops and news events ("… temple attack") are not heritage sites.
+const EXCLUDED_TITLE = /\b(?:airport|bus|metro|railway|station|train|attacks?|bombings?|riots?|massacre|election|constituency)\b/i;
 const PRIORITY_HERITAGE_CATEGORY = /\b(?:world heritage|unesco|monuments? of national importance|protected monuments?)\b/i;
 const HERITAGE_CATEGORY = /\b(?:cultural heritage|heritage sites?|historic(?:al)? buildings?|historic monuments?|palaces?|chhatris?|temples?|mandirs?|monuments?|museums?|forts?|stepwells?|havelis?|archaeological sites?)\b/i;
 
@@ -121,7 +122,7 @@ export async function GET(request: NextRequest) {
 
     const places = (geosearch.query?.geosearch || [])
       .filter(hasLocation)
-      .filter((place) => LANDMARK_CANDIDATE.test(place.title) && !TRANSPORT_TITLE.test(place.title))
+      .filter((place) => LANDMARK_CANDIDATE.test(place.title) && !EXCLUDED_TITLE.test(place.title))
       .slice(0, 20);
 
     const results: NearbyReference[] = [];
