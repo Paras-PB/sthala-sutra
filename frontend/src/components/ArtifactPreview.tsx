@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { FileText } from "lucide-react";
 import { previewImage } from "@/lib/archive-client";
 import type { ArchiveArtifact } from "@/types/archive";
 
@@ -12,7 +11,7 @@ type ArtifactPreviewProps = {
 
 /**
  * Shows the rendered preview (PDFs get one from the backend), the image itself, or a
- * document placeholder — never a broken <img> for a PDF.
+ * ruled document placeholder — never a broken <img> for a PDF.
  */
 export default function ArtifactPreview({ artifact, className = "" }: ArtifactPreviewProps) {
   const source = previewImage(artifact);
@@ -25,9 +24,8 @@ export default function ArtifactPreview({ artifact, className = "" }: ArtifactPr
   const isPdf = artifact.media_type.includes("pdf");
   return (
     <div className={`artifact-preview placeholder ${className}`} role="img" aria-label={`${isPdf ? "PDF document" : "Image"}: ${artifact.title}`}>
-      <FileText size={28} aria-hidden />
-      <span>{isPdf ? "PDF document" : "Preview unavailable"}</span>
-      {artifact.page_count > 0 && <small>{artifact.page_count} {artifact.page_count === 1 ? "page" : "pages"}</small>}
+      <span className="placeholder-format">{isPdf ? "PDF" : "IMG"}</span>
+      <span className="placeholder-note">{isPdf ? "Preview not yet rendered" : "Preview unavailable"}</span>
     </div>
   );
 }

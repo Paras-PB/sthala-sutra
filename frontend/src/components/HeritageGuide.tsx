@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowUpRight, LoaderCircle, Send, Sparkles } from "lucide-react";
+import { ArrowUpRight, LoaderCircle } from "lucide-react";
 import { readableError, responseError } from "@/lib/http";
 
 type GuideSource = { title: string; url: string | null; source: string };
@@ -90,11 +90,8 @@ export default function HeritageGuide({ kind, targetId, title }: HeritageGuidePr
   return (
     <section className="heritage-guide" aria-labelledby={`${inputId}-heading`}>
       <div className="guide-heading">
-        <span aria-hidden><Sparkles size={15} /></span>
-        <div>
-          <h3 id={`${inputId}-heading`}>Ask the heritage guide</h3>
-          <p>{kind === "archive" ? "Answers use this record's text and a matching Wikipedia article." : "Answers use this Wikipedia article only."}</p>
-        </div>
+        <h3 id={`${inputId}-heading`}>Ask the heritage guide</h3>
+        <p>{kind === "archive" ? "Answers draw only on this record’s text and one matching Wikipedia article." : "Answers draw only on this Wikipedia article."}</p>
       </div>
 
       {configured === false ? (
@@ -108,8 +105,8 @@ export default function HeritageGuide({ kind, targetId, title }: HeritageGuidePr
         <form className="guide-form" onSubmit={(event) => { event.preventDefault(); void ask(question); }}>
           <label htmlFor={inputId} className="visually-hidden">Ask about {title}</label>
           <input id={inputId} value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={500} placeholder={`Ask about ${title}…`} disabled={disabled} />
-          <button type="submit" aria-label="Send question" disabled={disabled || !question.trim()}>
-            {busy ? <LoaderCircle className="spin" size={16} aria-hidden /> : <Send size={15} aria-hidden />}
+          <button type="submit" disabled={disabled || !question.trim()}>
+            {busy ? <LoaderCircle className="spin" size={15} aria-hidden /> : "Ask"}
           </button>
         </form>
         {configured === null && <p className="guide-status">Connecting to the heritage guide…</p>}
@@ -117,6 +114,7 @@ export default function HeritageGuide({ kind, targetId, title }: HeritageGuidePr
         {error && <p className="guide-error" role="alert">{error}</p>}
         {answer && (
           <div className="guide-answer" aria-live="polite">
+            <p className="guide-answer-label">The guide’s answer</p>
             {renderAnswer(answer)}
             {sources.length > 0 && (
               <div className="guide-sources">

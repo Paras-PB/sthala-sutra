@@ -41,6 +41,11 @@ export function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+/** 14 → "No. 014", the way a printed catalogue numbers its entries. */
+export function catalogueNumber(value: number): string {
+  return `No. ${String(value).padStart(3, "0")}`;
+}
+
 export function formatMeters(meters: number): string {
   return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
 }

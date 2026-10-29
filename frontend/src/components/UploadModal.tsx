@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type DragEvent, type FormEvent } from "react";
-import { FileText, LoaderCircle, UploadCloud } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import Modal from "@/components/Modal";
 import { ACCEPTED_UPLOAD_TYPES, API, MAX_UPLOAD_BYTES, formatFileSize, titleCase } from "@/lib/archive-client";
 import { fetchJson, readableError } from "@/lib/http";
@@ -62,7 +62,7 @@ export default function UploadModal({ categories, onClose, onUploaded }: UploadM
   return (
     <Modal labelledBy="upload-title" onClose={onClose} className="upload-modal">
       <form onSubmit={submit} noValidate>
-        <p className="modal-kicker">Add a source</p>
+        <p className="modal-kicker">New accession</p>
         <h2 id="upload-title">Bring a record into the archive</h2>
         <p className="modal-lede">Upload a scan in Gujarati, Hindi or English. It is read, translated and indexed in the background.</p>
 
@@ -73,39 +73,39 @@ export default function UploadModal({ categories, onClose, onUploaded }: UploadM
           onDrop={onDrop}
         >
           {file ? <>
-            <FileText size={24} aria-hidden />
+            <span className="dropzone-label">Selected</span>
             <strong>{file.name}</strong>
             <span>{formatFileSize(file.size)} · {file.type === "application/pdf" ? "PDF" : file.type.replace("image/", "").toUpperCase()} · choose again to replace</span>
           </> : <>
-            <UploadCloud size={24} aria-hidden />
-            <strong>Drop a file here, or choose one</strong>
+            <span className="dropzone-label">Source file</span>
+            <strong>Drop a scan here, or choose a file</strong>
             <span>JPG, PNG, WebP or PDF, up to 25 MB</span>
           </>}
           <input name="file" type="file" accept={ACCEPTED_UPLOAD_TYPES.join(",")} aria-label="Scan, photograph or PDF" onChange={(event) => chooseFile(event.target.files?.[0])} />
         </label>
 
-        <label className="field">Title<input name="title" placeholder="Inscription at Adalaj stepwell" maxLength={300} /></label>
+        <label className="field">Title<input name="title" placeholder="e.g. Inscription at Adalaj stepwell" maxLength={300} /></label>
         <div className="form-pair">
           <label className="field">Type
             <select name="category" defaultValue="other">
               {(categories.includes("other") ? categories : [...categories, "other"]).map((category) => <option key={category} value={category}>{titleCase(category)}</option>)}
             </select>
           </label>
-          <label className="field">Era<input name="era" placeholder="15th century" maxLength={120} /></label>
+          <label className="field">Era<input name="era" placeholder="e.g. 15th century" maxLength={120} /></label>
         </div>
         <div className="form-pair">
-          <label className="field">Place name<input name="place_name" placeholder="Adalaj stepwell" maxLength={240} /></label>
-          <label className="field">Region<input name="region" placeholder="Gujarat" maxLength={160} /></label>
+          <label className="field">Place name<input name="place_name" placeholder="e.g. Adalaj stepwell" maxLength={240} /></label>
+          <label className="field">Region<input name="region" placeholder="e.g. Gujarat" maxLength={160} /></label>
         </div>
         <div className="form-pair">
-          <label className="field">Latitude<input name="latitude" type="number" step="any" min={-90} max={90} placeholder="23.17" /></label>
-          <label className="field">Longitude<input name="longitude" type="number" step="any" min={-180} max={180} placeholder="72.58" /></label>
+          <label className="field">Latitude<input name="latitude" type="number" step="any" min={-90} max={90} placeholder="e.g. 23.17" /></label>
+          <label className="field">Longitude<input name="longitude" type="number" step="any" min={-180} max={180} placeholder="e.g. 72.58" /></label>
         </div>
 
         {error && <p className="form-error" role="alert">{error}</p>}
         <button className="primary-button wide" type="submit" disabled={busy}>
-          {busy ? <LoaderCircle className="spin" size={16} aria-hidden /> : <UploadCloud size={16} aria-hidden />}
-          {busy ? "Uploading…" : "Upload and process"}
+          {busy && <LoaderCircle className="spin" size={15} aria-hidden />}
+          {busy ? "Uploading…" : "Add to the archive"}
         </button>
         <p className="fine-print">The original file is kept unchanged. Large files may need direct API mode when hosted on Vercel.</p>
       </form>

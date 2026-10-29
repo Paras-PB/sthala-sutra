@@ -1,18 +1,20 @@
 import type { FormEvent } from "react";
-import { ArrowRight, LoaderCircle, LocateFixed, Search } from "lucide-react";
+import { ArrowRight, LoaderCircle, LocateFixed } from "lucide-react";
+
+const SPECIMEN_QUERY = "રાણીની વાવ";
 
 const SUGGESTED_QUERIES = [
   "stepwells near IIT Gandhinagar",
   "Solanki-era temples",
-  "રાણીની વાવ",
+  SPECIMEN_QUERY,
   "weaving traditions of Gujarat",
 ];
 
 const STEPS = [
-  { name: "Scan", detail: "Upload a photo or PDF of any page." },
-  { name: "Read", detail: "OCR transcribes Gujarati, Hindi and English." },
-  { name: "Translate", detail: "Every page gets an English translation." },
-  { name: "Search & map", detail: "Find records by meaning, near a place, or on the map." },
+  { name: "Scan", detail: "Photograph or upload a page, a plaque, a ledger." },
+  { name: "Read", detail: "OCR transcribes Gujarati, Hindi and English script." },
+  { name: "Translate", detail: "Each folio is rendered into English beside the original." },
+  { name: "Search & map", detail: "Find it again by meaning, by place, or on the map." },
 ];
 
 type SearchHeroProps = {
@@ -22,9 +24,11 @@ type SearchHeroProps = {
   onNearMe: () => void;
   searching: boolean;
   locating: boolean;
-  /** Shown under the search box, e.g. a denied location permission. */
+  /** Shown under the search box, e.g. a declined location permission. */
   notice: string;
 };
+
+const isGujarati = (value: string) => /\p{Script=Gujarati}/u.test(value);
 
 export default function SearchHero({ query, onQueryChange, onSearch, onNearMe, searching, locating, notice }: SearchHeroProps) {
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -32,62 +36,72 @@ export default function SearchHero({ query, onQueryChange, onSearch, onNearMe, s
     onSearch(query);
   }
 
+  function runSuggestion(value: string) {
+    onQueryChange(value);
+    onSearch(value);
+  }
+
   return (
     <section className="hero" aria-labelledby="hero-title">
       <div className="hero-copy">
         <h1 id="hero-title">Every place keeps a story.</h1>
         <p className="hero-lede">
-          Scan a page in Gujarati, Hindi or English. SthalaSutra reads it, translates it,
-          and lets you search the archive by meaning and by place.
+          A field archive of inscriptions, records and stories. Scan a page in Gujarati, Hindi or English;
+          read the original beside its translation; search the archive by meaning, place, or script.
         </p>
       </div>
 
-      <button type="button" className="specimen" onClick={() => { onQueryChange("રાણીની વાવ"); onSearch("રાણીની વાવ"); }}>
-        <span className="specimen-script" lang="gu">રાણીની વાવ</span>
-        <span className="specimen-gloss">Rani ki Vav, “the Queen’s stepwell”</span>
-        <span className="specimen-hint">Search in Gujarati, find records in any language <ArrowRight size={13} aria-hidden /></span>
-      </button>
+      <figure className="specimen">
+        <p className="specimen-label">Specimen query</p>
+        <p className="specimen-script" lang="gu">{SPECIMEN_QUERY}</p>
+        <figcaption>
+          <span className="specimen-gloss">Rani ki Vav, the Queen’s stepwell at Patan</span>
+          <button type="button" className="text-link" onClick={() => runSuggestion(SPECIMEN_QUERY)}>
+            Search in Gujarati, match records in any script <ArrowRight size={13} aria-hidden />
+          </button>
+        </figcaption>
+      </figure>
 
       <form className="search-box" role="search" onSubmit={submit}>
-        <Search size={19} aria-hidden />
         <label htmlFor="archive-search" className="visually-hidden">Search the archive</label>
         <input
           id="archive-search"
           type="search"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Try “stepwells near Ahmedabad” or a phrase in any script"
+          placeholder="Search by meaning, place, or script — e.g. temples near Patan"
           autoComplete="off"
         />
         <button type="button" className="near-me" onClick={onNearMe} disabled={locating} aria-label="Search near my location">
-          {locating ? <LoaderCircle className="spin" size={16} aria-hidden /> : <LocateFixed size={16} aria-hidden />}
+          {locating ? <LoaderCircle className="spin" size={15} aria-hidden /> : <LocateFixed size={15} aria-hidden />}
           <span>Near me</span>
         </button>
-        <button type="submit" className="search-submit" disabled={searching} aria-label="Search">
-          {searching ? <LoaderCircle className="spin" size={17} aria-hidden /> : <ArrowRight size={18} aria-hidden />}
+        <button type="submit" className="search-submit" disabled={searching}>
+          {searching ? <LoaderCircle className="spin" size={15} aria-hidden /> : null}
+          Search
         </button>
       </form>
       {notice && <p className="search-notice" role="status">{notice}</p>}
 
-      <div className="suggestions" aria-label="Example searches">
-        {SUGGESTED_QUERIES.map((suggestion) => (
-          <button
-            key={suggestion}
-            type="button"
-            lang={/\p{Script=Gujarati}/u.test(suggestion) ? "gu" : undefined}
-            onClick={() => { onQueryChange(suggestion); onSearch(suggestion); }}
-          >
-            {suggestion}
-          </button>
-        ))}
+      <div className="suggestions">
+        <span className="suggestions-label">Try</span>
+        <ul>
+          {SUGGESTED_QUERIES.map((suggestion) => (
+            <li key={suggestion}>
+              <button type="button" lang={isGujarati(suggestion) ? "gu" : undefined} onClick={() => runSuggestion(suggestion)}>
+                {suggestion}
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <ol className="steps" aria-label="How it works">
+      <ol className="steps" aria-label="How a record moves through the archive">
         {STEPS.map((step, index) => (
           <li key={step.name}>
-            <span className="step-number" aria-hidden>{index + 1}</span>
+            <span className="step-number" aria-hidden>{String(index + 1).padStart(2, "0")}</span>
             <b>{step.name}</b>
-            <span>{step.detail}</span>
+            <span className="step-detail">{step.detail}</span>
           </li>
         ))}
       </ol>

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Archive, BookOpen, Compass, Layers3, MapPin, UploadCloud, X } from "lucide-react";
 import ArchiveFilters from "@/components/ArchiveFilters";
 import ArtifactCard, { ArtifactCardSkeleton } from "@/components/ArtifactCard";
 import ArtifactReader from "@/components/ArtifactReader";
@@ -141,6 +140,11 @@ export default function Home() {
     const place = coordinates ? null : nearbyPlaceFromQuery(trimmed);
     const label = trimmed || "Near your location";
     setSearch({ text: trimmed, label, loading: true, center: null, references: null, referencesError: "", notice: "", hits: null, archiveError: "" });
+    // Results render below the hero; bring them into view once the results bar exists.
+    requestAnimationFrame(() => {
+      const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      document.getElementById("search-results")?.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+    });
 
     let center: NearbyCenter | null = null;
     let references: NearbyReference[] | null = null;
@@ -212,6 +216,15 @@ export default function Home() {
     void fetchFacets();
   }
 
+  // Catalogue numbers follow accession order (oldest = No. 001). They come from the
+  // unfiltered list, so a record keeps its number while filters are applied.
+  const [catalogue, setCatalogue] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    if (Object.values(filters).some(Boolean) || items.length === 0) return;
+    const ordered = [...items].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    setCatalogue(new Map(ordered.map((item, index) => [item.id, index + 1])));
+  }, [items, filters]);
+
   const openArtifact = useCallback((artifact: ArchiveArtifact) => setSelected({ artifact, pageNumber: 1 }), []);
   const highlightIds = useMemo(
     () => (search?.hits ? new Set(search.hits.map((hit) => hit.artifact.id)) : null),
@@ -222,36 +235,38 @@ export default function Home() {
   const placeCount = new Set(items.map((item) => item.place?.name).filter(Boolean)).size;
   const languageCount = new Set(items.map((item) => item.language).filter(Boolean)).size;
   const geoLabel = search?.center ? `within ${ARCHIVE_RADIUS_KM} km of ${search.center.title}` : "";
+  const filtersActive = Object.values(filters).some(Boolean);
+  const offlineExample = "stepwells near IIT Gandhinagar";
 
   return (
     <main className="shell">
       <aside className="sidebar">
         <a className="brand" href="/">
-          <span className="brand-mark" aria-hidden><Compass size={21} /></span>
-          <span><b>SthalaSutra</b><small>Heritage, in place</small></span>
+          <b>SthalaSutra</b>
+          <span className="brand-scripts"><span lang="gu">સ્થળ</span> · <span lang="hi">स्थल</span> · place</span>
         </a>
         <nav className="side-nav" aria-label="Views">
-          <button type="button" className={`nav-item ${view === "archive" ? "active" : ""}`} aria-pressed={view === "archive"} onClick={() => setView("archive")}>
-            <Archive size={17} aria-hidden /> Archive <span className="nav-count">{items.length}</span>
+          <button type="button" className={view === "archive" ? "active" : ""} aria-pressed={view === "archive"} onClick={() => setView("archive")}>
+            Catalogue <span className="nav-count">{apiStatus === "online" ? items.length : ""}</span>
           </button>
-          <button type="button" className={`nav-item ${view === "map" ? "active" : ""}`} aria-pressed={view === "map"} onClick={() => setView("map")}>
-            <MapPin size={17} aria-hidden /> Living map
+          <button type="button" className={view === "map" ? "active" : ""} aria-pressed={view === "map"} onClick={() => setView("map")}>
+            Living map
           </button>
         </nav>
         <ArchiveFilters facets={facets} filters={filters} onChange={setFilters} />
         <div className="sidebar-bottom">
           <p className={`api-status ${apiStatus}`} role="status">
-            <span className="pulse" aria-hidden />
-            {apiStatus === "checking" ? "Checking the archive…" : apiStatus === "online" ? "Archive online" : "Archive offline"}
+            <span className="status-mark" aria-hidden />
+            {apiStatus === "checking" ? "Connecting to the archive" : apiStatus === "online" ? "Archive online" : "Archive offline"}
           </p>
-          <p className="sidebar-tagline">Stories, sources and places gathered in one searchable atlas.</p>
+          <p className="sidebar-tagline">Records, inscriptions and stories, each tied to the place it describes.</p>
         </div>
       </aside>
 
       <section className="main-panel">
         <header className="topbar">
-          <p className="crumb">Collections <span aria-hidden>/</span> <b>{view === "map" ? "Living map" : "All heritage"}</b></p>
-          <button type="button" className="upload-btn" onClick={() => setUploadOpen(true)}><UploadCloud size={16} aria-hidden /> Add to archive</button>
+          <p className="crumb">Collections <span aria-hidden>/</span> <b>{view === "map" ? "Living map" : "Catalogue"}</b></p>
+          <button type="button" className="primary-button" onClick={() => setUploadOpen(true)}>Add a record</button>
         </header>
 
         <div className="content">
@@ -267,21 +282,21 @@ export default function Home() {
 
           <div className="stats-row">
             <dl className="stats">
-              <div><dt>Records</dt><dd>{items.length}</dd></div>
-              <div><dt>Searchable</dt><dd>{readyCount}</dd></div>
-              <div><dt>Places</dt><dd>{placeCount}</dd></div>
-              <div><dt>Languages</dt><dd>{languageCount}</dd></div>
+              <div><dt>Records</dt><dd>{apiStatus === "online" ? items.length : "—"}</dd></div>
+              <div><dt>Searchable</dt><dd>{apiStatus === "online" ? readyCount : "—"}</dd></div>
+              <div><dt>Places</dt><dd>{apiStatus === "online" ? placeCount : "—"}</dd></div>
+              <div><dt>Scripts</dt><dd>{apiStatus === "online" ? languageCount : "—"}</dd></div>
             </dl>
             <div className="view-toggle" role="group" aria-label="Show results as">
-              <button type="button" aria-pressed={view === "archive"} className={view === "archive" ? "selected" : ""} onClick={() => setView("archive")}><Layers3 size={15} aria-hidden /> List</button>
-              <button type="button" aria-pressed={view === "map"} className={view === "map" ? "selected" : ""} onClick={() => setView("map")}><MapPin size={15} aria-hidden /> Map</button>
+              <button type="button" aria-pressed={view === "archive"} onClick={() => setView("archive")}>List</button>
+              <button type="button" aria-pressed={view === "map"} onClick={() => setView("map")}>Map</button>
             </div>
           </div>
 
           {search && (
-            <div className="results-bar">
-              <p>Results for <b>“{search.label}”</b>{geoLabel && <> · archive {geoLabel}</>}</p>
-              <button type="button" onClick={clearSearch}>Clear search <X size={13} aria-hidden /></button>
+            <div className="results-bar" id="search-results">
+              <p>Results for <b>“{search.label}”</b>{geoLabel && <span className="results-geo"> · archive {geoLabel}</span>}</p>
+              <button type="button" className="text-link" onClick={clearSearch}>Clear search</button>
             </div>
           )}
           {search?.notice && <p className="notice">{search.notice}</p>}
@@ -300,33 +315,34 @@ export default function Home() {
           ) : search ? (
             <>
               <section className="results-section" aria-labelledby="archive-results-heading" aria-busy={search.loading}>
-                <div className="section-head">
+                <header className="section-head">
                   <div>
                     <h2 id="archive-results-heading">In the archive{search.center ? ` — ${geoLabel}` : ""}</h2>
-                    <p>{search.center ? "Ranked by meaning, limited by distance" : "Ranked by meaning, across all scripts and translations"}</p>
+                    <p>{search.center ? "Ranked by meaning, limited by distance" : "Ranked by meaning across originals and translations"}</p>
                   </div>
-                  {search.hits && <span className="count-chip">{search.hits.length} {search.hits.length === 1 ? "record" : "records"}</span>}
-                </div>
+                  {search.hits && <span className="section-count">{search.hits.length} {search.hits.length === 1 ? "record" : "records"}</span>}
+                </header>
                 {search.loading ? (
-                  <div className="artifact-grid">{[0, 1, 2].map((key) => <ArtifactCardSkeleton key={key} />)}</div>
+                  <div className="entry-grid">{[0, 1, 2].map((key) => <ArtifactCardSkeleton key={key} />)}</div>
                 ) : search.hits === null ? (
-                  <div className="empty-state compact">
-                    <BookOpen size={22} aria-hidden />
-                    <b>The archive could not be searched</b>
-                    <span>{search.archiveError}</span>
+                  <div className="index-card compact">
+                    <p className="index-card-label">Archive unreachable</p>
+                    <h3>The catalogue could not be searched</h3>
+                    <p>{search.archiveError}</p>
                   </div>
                 ) : search.hits.length === 0 ? (
-                  <div className="empty-state compact">
-                    <BookOpen size={22} aria-hidden />
-                    <b>No matching records{search.center ? ` ${geoLabel}` : ""}</b>
-                    <span>Try fewer words, a different spelling, or clear the filters.</span>
+                  <div className="index-card compact">
+                    <p className="index-card-label">No matches</p>
+                    <h3>Nothing in the archive {search.center ? geoLabel : "matches this search"}</h3>
+                    <p>Try fewer words, another spelling or script, or clear the filters.</p>
                   </div>
                 ) : (
-                  <div className="artifact-grid">
+                  <div className="entry-grid">
                     {search.hits.map((hit, index) => (
                       <ArtifactCard
                         key={`${hit.artifact.id}-${hit.page_number}`}
                         artifact={hit.artifact}
+                        catalogueNo={catalogue.get(hit.artifact.id)}
                         snippet={hit.original_text}
                         rank={index + 1}
                         pageNumber={hit.page_number}
@@ -345,35 +361,43 @@ export default function Home() {
             </>
           ) : (
             <section className="results-section" aria-labelledby="archive-heading">
-              <div className="section-head">
+              <header className="section-head">
                 <div>
-                  <h2 id="archive-heading">The gathered archive</h2>
-                  <p>Field notes and records, newest first</p>
+                  <h2 id="archive-heading">The catalogue</h2>
+                  <p>{filtersActive ? "Records matching the filters, newest first" : "Every record in the archive, newest first"}</p>
                 </div>
-                <span className="count-chip">{items.length} {items.length === 1 ? "record" : "records"}</span>
-              </div>
+                {apiStatus === "online" && <span className="section-count">{items.length} {items.length === 1 ? "record" : "records"}</span>}
+              </header>
               {apiStatus === "checking" ? (
-                <div className="artifact-grid">{[0, 1, 2, 3, 4, 5].map((key) => <ArtifactCardSkeleton key={key} />)}</div>
+                <div className="entry-grid">{[0, 1, 2].map((key) => <ArtifactCardSkeleton key={key} />)}</div>
               ) : apiStatus === "offline" && items.length === 0 ? (
-                <div className="empty-state">
-                  <BookOpen size={25} aria-hidden />
-                  <b>The archive is offline</b>
-                  <span>{listError} Start the backend, or set HERITAGE_API_URL on the web server. Place searches still return Wikipedia references.</span>
-                  <button type="button" className="secondary-button" onClick={() => void fetchItems()}>Try again</button>
+                <div className="index-card">
+                  <p className="index-card-label">Archive offline</p>
+                  <h3>The catalogue is closed for the moment</h3>
+                  <p>The records are kept by the archive service, which is not answering.</p>
+                  <p>
+                    Place searches still work. Try{" "}
+                    <button type="button" className="inline-link" onClick={() => { setQuery(offlineExample); void runSearch(offlineExample); }}>{offlineExample}</button>
+                    {" "}to see public references from Wikipedia.
+                  </p>
+                  <p className="index-card-actions">
+                    <button type="button" className="secondary-button" onClick={() => void fetchItems()}>Try again</button>
+                    <span>{listError}</span>
+                  </p>
                 </div>
               ) : items.length === 0 ? (
-                <div className="empty-state">
-                  <BookOpen size={25} aria-hidden />
-                  <b>{Object.values(filters).some(Boolean) ? "No records match these filters" : "The archive is ready for its first record"}</b>
-                  <span>Upload a scan or photograph of a page to start the collection.</span>
-                  <button type="button" className="primary-button" onClick={() => setUploadOpen(true)}><UploadCloud size={15} aria-hidden /> Add to archive</button>
+                <div className="index-card">
+                  <p className="index-card-label">{filtersActive ? "No matches" : "No. 001"}</p>
+                  <h3>{filtersActive ? "No records match these filters" : "The first entry is yours to add"}</h3>
+                  <p>{filtersActive ? "Reset the filters to see the whole catalogue." : "Upload a scan or photograph of a page — an inscription, a ledger, a letter — and it will be read, translated and placed on the map."}</p>
+                  {!filtersActive && <p className="index-card-actions"><button type="button" className="primary-button" onClick={() => setUploadOpen(true)}>Add a record</button></p>}
                 </div>
               ) : (
-                <div className="artifact-grid">
-                  {items.map((item) => <ArtifactCard key={item.id} artifact={item} onOpen={() => openArtifact(item)} />)}
+                <div className="entry-grid">
+                  {items.map((item) => <ArtifactCard key={item.id} artifact={item} catalogueNo={catalogue.get(item.id)} onOpen={() => openArtifact(item)} />)}
                 </div>
               )}
-              {listError && items.length > 0 && <p className="notice error">{listError} Showing the last records that loaded.</p>}
+              {listError && items.length > 0 && <p className="notice error">{listError} Showing the records that loaded last.</p>}
             </section>
           )}
         </div>
@@ -385,6 +409,7 @@ export default function Home() {
           key={`${selected.artifact.id}-${selected.pageNumber}`}
           artifact={selected.artifact}
           initialPage={selected.pageNumber}
+          catalogueNo={catalogue.get(selected.artifact.id)}
           onClose={() => setSelected(null)}
         />
       )}

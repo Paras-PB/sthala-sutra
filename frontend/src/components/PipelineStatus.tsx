@@ -17,18 +17,23 @@ export function pipelineStage(artifact: Pick<ArchiveArtifact, "status" | "progre
 
 type PipelineStatusProps = { artifact: ArchiveArtifact };
 
-/** Compact five-step track shown on cards while a record is being processed. */
+/** A quiet ledger line: finished stages in ink, the current one in rust, the rest faint. */
 export default function PipelineStatus({ artifact }: PipelineStatusProps) {
   if (artifact.status === "failed") {
-    return <p className="pipeline failed" role="status">Processing failed{artifact.error_message ? `: ${artifact.error_message}` : "."}</p>;
+    return (
+      <div className="ledger failed" role="status">
+        <p className="ledger-stages">Processing stopped</p>
+        <p className="ledger-note">{artifact.error_message || "The pipeline could not finish this record."}</p>
+      </div>
+    );
   }
   const stage = pipelineStage(artifact);
   return (
-    <div className="pipeline" role="status" aria-label={`Processing: ${STAGES[stage]}`}>
-      <ol className="pipeline-track" aria-hidden>
-        {STAGES.map((name, index) => <li key={name} className={index < stage ? "done" : index === stage ? "current" : ""} />)}
+    <div className="ledger" role="status" aria-label={`Processing: ${STAGES[stage]}${artifact.progress ? `, ${artifact.progress}` : ""}`}>
+      <ol className="ledger-stages" aria-hidden>
+        {STAGES.map((name, index) => <li key={name} className={index < stage ? "done" : index === stage ? "current" : ""}>{name}</li>)}
       </ol>
-      <p><b>{STAGES[stage]}</b>{artifact.progress ? ` · ${artifact.progress}` : ""}</p>
+      {artifact.progress && <p className="ledger-note" aria-hidden>{artifact.progress}</p>}
     </div>
   );
 }

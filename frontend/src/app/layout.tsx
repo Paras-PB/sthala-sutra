@@ -9,9 +9,11 @@ const playfair = Playfair_Display({ subsets: ["latin"], style: ["normal", "itali
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap" });
 const dmMono = DM_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-dm-mono", display: "swap" });
 // Archive transcriptions are often Gujarati or Hindi; these cover the glyphs Playfair lacks.
-// Not preloaded: the browser fetches them only when such text is on screen.
-const gujarati = Noto_Serif_Gujarati({ subsets: ["gujarati"], variable: "--font-gujarati", display: "swap", preload: false });
-const devanagari = Noto_Serif_Devanagari({ subsets: ["devanagari"], variable: "--font-devanagari", display: "swap", preload: false });
+// Not preloaded: the browser fetches them only when such text is on screen. No metric
+// fallback face either — it would have no unicode-range and capture Latin text that
+// should fall through to Playfair in the --script stack.
+const gujarati = Noto_Serif_Gujarati({ subsets: ["gujarati"], variable: "--font-gujarati", display: "swap", preload: false, adjustFontFallback: false });
+const devanagari = Noto_Serif_Devanagari({ subsets: ["devanagari"], variable: "--font-devanagari", display: "swap", preload: false, adjustFontFallback: false });
 
 export const metadata: Metadata = {
   title: "SthalaSutra — Heritage, connected to its place",
