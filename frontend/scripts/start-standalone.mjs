@@ -8,8 +8,10 @@ const standaloneRoot = path.join(projectRoot, ".next", "standalone");
 const serverEnvironment = { ...process.env };
 
 // `npm start` is the local standalone path; Compose supplies its own service URL.
+// Same default as LOCAL_ARCHIVE_API in src/lib/archive-api.ts — keep the two in step.
+const LOCAL_ARCHIVE_API = "http://127.0.0.1:8000";
 if (!serverEnvironment.HERITAGE_API_URL?.trim()) {
-  serverEnvironment.HERITAGE_API_URL = "http://127.0.0.1:8000";
+  serverEnvironment.HERITAGE_API_URL = LOCAL_ARCHIVE_API;
 }
 
 await access(path.join(standaloneRoot, "server.js"));

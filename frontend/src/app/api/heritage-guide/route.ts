@@ -1,35 +1,25 @@
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { NextRequest, NextResponse } from "next/server";
+import { archiveUpstreamBase, archiveUrl } from "@/lib/archive-api";
+import { queryWikipedia, wikipediaArticleUrl } from "@/lib/wikipedia";
+import type { ArchiveArtifactDetail } from "@/types/archive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const MODEL = "gemini-3.5-flash-lite";
-const GOOGLE_WIKI_API = "https://en.wikipedia.org/w/api.php";
-const TIMEOUT_MS = 6_000;
-const API_TIMEOUT_MS = 6_000;
+// Archive and Wikipedia lookups share one timeout so the whole request fits in maxDuration.
+const SOURCE_TIMEOUT_MS = 6_000;
 const GENERATION_TIMEOUT_MS = 20_000;
 const RATE_WINDOW_MS = 10 * 60_000;
 const RATE_LIMIT = 10;
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
-const wikiHeaders = {
-  "User-Agent": "SthalaSutra/0.2 (https://github.com/Paras-PB/sthala-sutra; contact via repository)",
-  Accept: "application/json",
-};
+const EXTRACT_PARAMS = { explaintext: "1", exintro: "1" };
 
-type ArchiveArtifact = {
-  id: string;
-  title: string;
-  category?: string | null;
-  era?: string | null;
-  language?: string | null;
-  place?: { name?: string | null; region?: string | null } | null;
-  original_text?: string | null;
-  translated_text?: string | null;
-};
-type WikiPageResponse = { query?: { pages?: Array<{ pageid?: number; title?: string; extract?: string }> } };
+type WikiPage = { pageid?: number; title?: string; extract?: string; fullurl?: string };
+type WikiPageResponse = { query?: { pages?: WikiPage[] } };
 type GuideSource = { title: string; url: string | null; source: string };
 
 function jsonError(status: number, code: string, error: string) {
@@ -53,45 +43,37 @@ function isRateLimited(request: NextRequest) {
   return false;
 }
 
-function wikiParams(values: Record<string, string>) {
-  return new URLSearchParams({ ...values, format: "json", formatversion: "2", explaintext: "1", exintro: "1" });
-}
-
 async function findWikipediaSource(query: string): Promise<{ title: string; extract: string; url: string } | null> {
   if (!query.trim()) return null;
   try {
-    const params = wikiParams({
-      action: "query", generator: "search", gsrsearch: query, gsrnamespace: "0", gsrlimit: "1", prop: "extracts",
-    });
-    const response = await fetch(`${GOOGLE_WIKI_API}?${params}`, {
-      headers: wikiHeaders,
-      next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    const data = await response.json() as WikiPageResponse;
+    const data = await queryWikipedia<WikiPageResponse>({
+      action: "query", generator: "search", gsrsearch: query, gsrnamespace: "0", gsrlimit: "1", prop: "extracts", ...EXTRACT_PARAMS,
+    }, SOURCE_TIMEOUT_MS);
     const article = data.query?.pages?.[0];
     if (!article?.pageid || !article.title || !article.extract) return null;
-    return {
-      title: article.title,
-      extract: article.extract.slice(0, 8_000),
-      url: `https://en.wikipedia.org/?curid=${article.pageid}`,
-    };
+    return { title: article.title, extract: article.extract.slice(0, 8_000), url: wikipediaArticleUrl(article.pageid) };
   } catch {
     return null;
   }
 }
 
-async function getArtifact(artifactId: string): Promise<ArchiveArtifact | null> {
-  const configuredUrl = process.env.HERITAGE_API_URL?.trim();
-  const upstream = configuredUrl || (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "");
-  if (!upstream) throw new Error("Archive API is not configured on the web server.");
-  const base = new URL(upstream.endsWith("/") ? upstream : `${upstream}/`);
-  const url = new URL(`api/artifacts/${artifactId}`, base);
-  const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(API_TIMEOUT_MS) });
+async function getArtifact(artifactId: string): Promise<ArchiveArtifactDetail | null> {
+  const base = archiveUpstreamBase();
+  if (!base) throw new Error("Archive API is not configured on the web server.");
+  const response = await fetch(archiveUrl(base, `api/artifacts/${artifactId}`), {
+    cache: "no-store",
+    signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS),
+  });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error("The archive record could not be loaded.");
-  return await response.json() as ArchiveArtifact;
+  return await response.json() as ArchiveArtifactDetail;
+}
+
+/** Text of every page, so multi-page records are not judged by page one alone. */
+function recordText(artifact: ArchiveArtifactDetail, field: "original_text" | "translated_text") {
+  const pages = Array.isArray(artifact.pages) ? artifact.pages : [];
+  const joined = pages.map((page) => page[field]).filter(Boolean).join("\n\n");
+  return (joined || artifact[field] || "not available").slice(0, 3_000);
 }
 
 async function loadContext(body: { artifactId?: string; referenceId?: string }) {
@@ -111,8 +93,8 @@ async function loadContext(body: { artifactId?: string; referenceId?: string }) 
       `Era: ${artifact.era || "not recorded"}`,
       `Place: ${place || "not recorded"}`,
       `Language: ${artifact.language || "not recorded"}`,
-      `Original transcription (OCR; may contain errors): ${(artifact.original_text || "not available").slice(0, 3_000)}`,
-      `English translation (may contain errors): ${(artifact.translated_text || "not available").slice(0, 3_000)}`,
+      `Original transcription (OCR; may contain errors): ${recordText(artifact, "original_text")}`,
+      `English translation (may contain errors): ${recordText(artifact, "translated_text")}`,
     ].join("\n"));
     sources.push({ title: `Archive record: ${artifact.title}`, url: null, source: "archive" });
 
@@ -124,18 +106,18 @@ async function loadContext(body: { artifactId?: string; referenceId?: string }) 
   } else if (body.referenceId) {
     const match = body.referenceId.match(/^wikipedia:(\d{1,12})$/);
     if (!match) return { error: "Choose a valid public heritage reference." } as const;
-    const params = wikiParams({ action: "query", pageids: match[1], prop: "extracts|info", inprop: "url" });
-    const response = await fetch(`${GOOGLE_WIKI_API}?${params}`, {
-      headers: wikiHeaders,
-      next: { revalidate: 3600 },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!response.ok) return { error: "The public heritage reference is temporarily unavailable." } as const;
-    const data = await response.json() as { query?: { pages?: Array<{ pageid?: number; title?: string; extract?: string; fullurl?: string }> } };
+    let data: WikiPageResponse;
+    try {
+      data = await queryWikipedia<WikiPageResponse>({
+        action: "query", pageids: match[1], prop: "extracts|info", inprop: "url", ...EXTRACT_PARAMS,
+      }, SOURCE_TIMEOUT_MS);
+    } catch {
+      return { error: "The public heritage reference is temporarily unavailable." } as const;
+    }
     const page = data.query?.pages?.[0];
     if (!page?.title || !page.extract) return { error: "The public heritage reference has no readable article text." } as const;
     sections.push(`Public reference: ${page.title}\n${page.extract.slice(0, 8_000)}`);
-    sources.push({ title: page.title, url: page.fullurl || `https://en.wikipedia.org/?curid=${match[1]}`, source: "Wikipedia" });
+    sources.push({ title: page.title, url: page.fullurl || wikipediaArticleUrl(match[1]), source: "Wikipedia" });
   } else {
     return { error: "Choose an archive item or public reference first." } as const;
   }
