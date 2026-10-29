@@ -12,3 +12,6 @@ data/sample/*.png
 .DS_Store
 work/
 supabase/.temp/
+.venv/
+venv/
+.pytest_cache/
