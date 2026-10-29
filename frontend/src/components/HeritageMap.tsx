@@ -1,91 +1,93 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Map as MapLibreMap, Marker, NavigationControl, LngLatBounds, setWorkerUrl, type MapLayerMouseEvent } from "maplibre-gl";
+import { useEffect, useRef, useState } from "react";
+import { LngLatBounds, Map as MapLibreMap, Marker, NavigationControl, setWorkerUrl, type MapLayerMouseEvent } from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString } from "geojson";
 import { MapPin } from "lucide-react";
-import type { ArchiveArtifact, NearbyReference } from "@/types/archive";
+import { API, filterParams } from "@/lib/archive-client";
+import { fetchJson, isAbortError, readableError } from "@/lib/http";
+import type { ArchiveArtifact, ArchiveFilters, MapData, NearbyCenter, NearbyReference } from "@/types/archive";
 
 // MapLibre 6 needs an explicit worker URL when its ESM bundle is built by Next.js/Turbopack.
 setWorkerUrl(new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString());
 
-type RecordItem = {
-  id: string;
-  title: string;
-  category: string;
-  era: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  place: string | null;
-  image_url: string;
-  artifact: ArchiveArtifact;
-};
-type HeritageFeature = {
-  id: string;
-  title: string;
-  kind: "monument" | "route" | "folklore";
-  description: string;
-  geometry: GeoJSON.Geometry;
-  artifact: ArchiveArtifact | null;
-};
-type MapData = { artifacts: RecordItem[]; features: HeritageFeature[] };
-type MapFilters = { region: string; category: string; era: string };
+type PinKind = "record" | "folklore" | "reference" | "center";
+type LngLat = [number, number];
 
-const emptyData: MapData = { artifacts: [], features: [] };
-
-export default function HeritageMap({
-  api,
-  filters,
-  nearby = [],
-  onSelect,
-  onSelectNearby,
-}: {
-  api: string;
-  filters: MapFilters;
-  nearby?: NearbyReference[];
+type HeritageMapProps = {
+  filters: ArchiveFilters;
+  nearby: NearbyReference[];
+  /** The place a geo search was centred on. */
+  center: NearbyCenter | null;
+  /** Artifact ids from the active search; other archive pins are dimmed. null = no search. */
+  highlightIds: Set<string> | null;
   onSelect: (artifact: ArchiveArtifact) => void;
-  onSelectNearby?: (reference: NearbyReference) => void;
-}) {
+  onSelectNearby: (reference: NearbyReference) => void;
+};
+
+const EMPTY_DATA: MapData = { artifacts: [], features: [] };
+const ROUTE_SOURCE = "heritage-routes";
+const ROUTE_LAYER = "heritage-routes-line";
+
+const LEGEND: Array<{ kind: PinKind | "route"; label: string }> = [
+  { kind: "record", label: "Archive record" },
+  { kind: "route", label: "Heritage route" },
+  { kind: "folklore", label: "Folklore" },
+  { kind: "reference", label: "Wikipedia reference" },
+];
+
+type PinOptions = {
+  at: LngLat;
+  kind: PinKind;
+  title: string;
+  dimmed?: boolean;
+  onClick?: () => void;
+};
+
+/** One marker element for every pin type: a teardrop shape plus a label shown on hover and focus. */
+function addPin(map: MapLibreMap, { at, kind, title, dimmed = false, onClick }: PinOptions): Marker {
+  const element = document.createElement(onClick ? "button" : "div");
+  element.className = `map-marker ${kind}${dimmed ? " dimmed" : ""}`;
+  if (onClick) {
+    (element as HTMLButtonElement).type = "button";
+    element.setAttribute("aria-label", title);
+    element.addEventListener("click", onClick);
+  }
+  const shape = document.createElement("span");
+  shape.className = "pin-shape";
+  const label = document.createElement("span");
+  label.className = "pin-label";
+  label.textContent = title;
+  element.append(shape, label);
+  return new Marker({ element, anchor: "bottom" }).setLngLat(at).addTo(map);
+}
+
+export default function HeritageMap({ filters, nearby, center, highlightIds, onSelect, onSelectNearby }: HeritageMapProps) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const [styleReady, setStyleReady] = useState(false);
-  const [data, setData] = useState<MapData>(emptyData);
+  const [data, setData] = useState<MapData>(EMPTY_DATA);
   const [message, setMessage] = useState("Loading mapped places…");
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (filters.region) params.set("region", filters.region);
-    if (filters.category) params.set("category", filters.category);
-    if (filters.era) params.set("era", filters.era);
-    return params.toString();
-  }, [filters]);
+  const query = filterParams(filters).toString();
 
   useEffect(() => {
     const controller = new AbortController();
-    const baseUrl = api.replace(/\/$/, "");
-    fetch(`${baseUrl}/api/map${query ? `?${query}` : ""}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = await response.json().catch(() => null) as { error?: unknown; detail?: unknown } | null;
-          const message = typeof body?.error === "string" ? body.error : typeof body?.detail === "string" ? body.detail : "Map request failed.";
-          throw new Error(message);
-        }
-        return response.json() as Promise<MapData>;
-      })
+    fetchJson<MapData>(`${API}/api/map${query ? `?${query}` : ""}`, "Map request failed.", { signal: controller.signal })
       .then((value) => {
-        const nextData = {
+        const next = {
           artifacts: Array.isArray(value?.artifacts) ? value.artifacts : [],
           features: Array.isArray(value?.features) ? value.features : [],
         };
-        setData(nextData);
-        setMessage(nextData.artifacts.length || nextData.features.length ? "" : "No mapped items match these filters.");
+        setData(next);
+        setMessage(next.artifacts.length || next.features.length ? "" : "No mapped records match these filters.");
       })
       .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        const detail = error instanceof Error ? error.message : "Archive API is unavailable.";
-        setMessage(nearby.length ? "Archive map is offline; nearby public references are shown." : detail);
+        if (isAbortError(error)) return;
+        setData(EMPTY_DATA);
+        setMessage(readableError(error, "The archive map is unavailable."));
       });
     return () => controller.abort();
-  }, [api, query, nearby.length]);
+  }, [query]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
@@ -122,126 +124,110 @@ export default function HeritageMap({
     const current = map.current;
     if (!current || !styleReady) return;
 
-    const draw = () => {
-      const markers: Marker[] = [];
-      const coordinates: [number, number][] = [];
-      const routeFeatures: Feature<LineString>[] = [];
+    const markers: Marker[] = [];
+    const allPoints: LngLat[] = [];
+    // When a search is active, the view frames its results instead of the whole archive.
+    const focusPoints: LngLat[] = [];
+    const routes: Feature<LineString>[] = [];
+    const isDimmed = (artifact: ArchiveArtifact | null) => highlightIds !== null && (!artifact || !highlightIds.has(artifact.id));
 
-      for (const item of data.artifacts) {
-        if (!Number.isFinite(item.latitude) || !Number.isFinite(item.longitude)) continue;
-        const latitude = item.latitude as number;
-        const longitude = item.longitude as number;
-        const button = document.createElement("button");
-        button.className = "map-pin monument";
-        button.type = "button";
-        button.setAttribute("aria-label", item.title);
-        button.title = item.title;
-        button.append(document.createElement("span"));
-        button.addEventListener("click", () => onSelect(item.artifact));
-        markers.push(new Marker({ element: button, anchor: "bottom" }).setLngLat([longitude, latitude]).addTo(current));
-        coordinates.push([longitude, latitude]);
+    for (const point of data.artifacts) {
+      if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) continue;
+      const at: LngLat = [point.longitude, point.latitude];
+      const dimmed = isDimmed(point.artifact);
+      markers.push(addPin(current, { at, kind: "record", title: point.artifact.title, dimmed, onClick: () => onSelect(point.artifact) }));
+      allPoints.push(at);
+      if (!dimmed) focusPoints.push(at);
+    }
+
+    for (const feature of data.features) {
+      const artifact = feature.artifact;
+      if (feature.kind === "route" && feature.geometry.type === "LineString") {
+        routes.push({ type: "Feature", geometry: feature.geometry, properties: { id: feature.id } });
+        allPoints.push(...feature.geometry.coordinates as LngLat[]);
+        continue;
       }
+      if (feature.geometry.type !== "Point") continue;
+      const [longitude, latitude] = feature.geometry.coordinates;
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+      const at: LngLat = [longitude, latitude];
+      const dimmed = isDimmed(artifact);
+      markers.push(addPin(current, {
+        at,
+        kind: feature.kind === "folklore" ? "folklore" : "record",
+        title: feature.title,
+        dimmed,
+        onClick: artifact ? () => onSelect(artifact) : undefined,
+      }));
+      allPoints.push(at);
+      if (!dimmed) focusPoints.push(at);
+    }
 
-      for (const feature of data.features) {
-        if (feature.kind === "route" && feature.geometry.type === "LineString") {
-          routeFeatures.push({
-            type: "Feature",
-            geometry: feature.geometry as LineString,
-            properties: { id: feature.id, title: feature.title },
-          });
-          coordinates.push(...feature.geometry.coordinates as [number, number][]);
-          continue;
-        }
-        if (feature.geometry.type !== "Point") continue;
-        const [longitude, latitude] = feature.geometry.coordinates;
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
-        const button = document.createElement("button");
-        button.className = `map-pin ${feature.kind}`;
-        button.type = "button";
-        button.setAttribute("aria-label", feature.title);
-        button.title = feature.title;
-        button.append(document.createElement("span"));
-        button.addEventListener("click", () => {
-          if (feature.artifact) onSelect(feature.artifact);
-        });
-        markers.push(new Marker({ element: button, anchor: "bottom" }).setLngLat([longitude, latitude]).addTo(current));
-        coordinates.push([longitude, latitude]);
-      }
+    for (const reference of nearby) {
+      const at: LngLat = [reference.longitude, reference.latitude];
+      markers.push(addPin(current, { at, kind: "reference", title: `${reference.title} (Wikipedia)`, onClick: () => onSelectNearby(reference) }));
+      allPoints.push(at);
+      focusPoints.push(at);
+    }
 
-      for (const reference of nearby) {
-        if (!Number.isFinite(reference.latitude) || !Number.isFinite(reference.longitude)) continue;
-        const button = document.createElement("button");
-        button.className = "map-pin discovery";
-        button.type = "button";
-        button.setAttribute("aria-label", `${reference.title} (Wikipedia reference)`);
-        button.title = `${reference.title} · Wikipedia reference`;
-        button.append(document.createElement("span"));
-        button.addEventListener("click", () => onSelectNearby?.(reference));
-        markers.push(new Marker({ element: button, anchor: "bottom" })
-          .setLngLat([reference.longitude, reference.latitude]).addTo(current));
-        coordinates.push([reference.longitude, reference.latitude]);
-      }
+    if (center) {
+      const at: LngLat = [center.longitude, center.latitude];
+      markers.push(addPin(current, { at, kind: "center", title: `Searched: ${center.title}` }));
+      focusPoints.push(at);
+    }
 
-      const sourceId = "heritage-routes";
-      const layerId = "heritage-routes-line";
-      const selectRoute = (event: MapLayerMouseEvent) => {
-        const featureId = event.features?.[0]?.properties?.id;
-        const record = data.features.find((item) => item.id === featureId);
-        if (record?.artifact) onSelect(record.artifact);
-      };
-
-      if (current.getLayer(layerId)) {
-        current.off("click", layerId, selectRoute);
-        current.removeLayer(layerId);
-      }
-      if (current.getSource(sourceId)) current.removeSource(sourceId);
-      if (routeFeatures.length) {
-        current.addSource(sourceId, {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: routeFeatures } as FeatureCollection<LineString>,
-        });
-        current.addLayer({
-          id: layerId,
-          type: "line",
-          source: sourceId,
-          paint: { "line-color": "#ad704f", "line-width": 3, "line-dasharray": [2, 1.5], "line-opacity": 0.9 },
-        });
-        current.on("click", layerId, selectRoute);
-      }
-
-      if (coordinates.length) {
-        const bounds = coordinates.reduce(
-          (value, point) => value.extend(point),
-          new LngLatBounds(),
-        );
-        current.fitBounds(bounds, { padding: 70, maxZoom: 10, duration: 500 });
-      }
-
-      return () => {
-        markers.forEach((marker) => marker.remove());
-        if (current.getLayer(layerId)) {
-          current.off("click", layerId, selectRoute);
-          current.removeLayer(layerId);
-        }
-        if (current.getSource(sourceId)) current.removeSource(sourceId);
-      };
+    const selectRoute = (event: MapLayerMouseEvent) => {
+      const record = data.features.find((item) => item.id === event.features?.[0]?.properties?.id);
+      if (record?.artifact) onSelect(record.artifact);
     };
+    const pointer = () => { current.getCanvas().style.cursor = "pointer"; };
+    const resetPointer = () => { current.getCanvas().style.cursor = ""; };
+    if (routes.length) {
+      current.addSource(ROUTE_SOURCE, { type: "geojson", data: { type: "FeatureCollection", features: routes } as FeatureCollection<LineString> });
+      current.addLayer({
+        id: ROUTE_LAYER,
+        type: "line",
+        source: ROUTE_SOURCE,
+        paint: { "line-color": "#b76c49", "line-width": 3, "line-dasharray": [2, 1.5], "line-opacity": highlightIds ? 0.35 : 0.9 },
+      });
+      current.on("click", ROUTE_LAYER, selectRoute);
+      current.on("mouseenter", ROUTE_LAYER, pointer);
+      current.on("mouseleave", ROUTE_LAYER, resetPointer);
+    }
 
-    return draw();
-  }, [data, nearby, onSelect, onSelectNearby, styleReady]);
+    const framed = highlightIds || center ? focusPoints : allPoints;
+    if (framed.length) {
+      const bounds = framed.reduce((value, point) => value.extend(point), new LngLatBounds());
+      current.fitBounds(bounds, { padding: 70, maxZoom: center ? 12 : 10, duration: 500 });
+    }
+
+    return () => {
+      markers.forEach((marker) => marker.remove());
+      if (current.getLayer(ROUTE_LAYER)) {
+        current.off("click", ROUTE_LAYER, selectRoute);
+        current.off("mouseenter", ROUTE_LAYER, pointer);
+        current.off("mouseleave", ROUTE_LAYER, resetPointer);
+        current.removeLayer(ROUTE_LAYER);
+      }
+      if (current.getSource(ROUTE_SOURCE)) current.removeSource(ROUTE_SOURCE);
+    };
+  }, [data, nearby, center, highlightIds, onSelect, onSelectNearby, styleReady]);
 
   const archiveCount = data.artifacts.length + data.features.length;
+  const visibleMessage = message && nearby.length ? `${message} Wikipedia references are still shown.` : message;
   return (
     <div className="map-wrap">
       <div className="map-canvas" ref={container} />
-      {message && (
-        <div className="map-message">
-          <MapPin size={18} />{message}
-        </div>
-      )}
+      {visibleMessage && <div className="map-message" role="status"><MapPin size={18} aria-hidden />{visibleMessage}</div>}
       <div className="map-legend">
-        <b>THE LIVING MAP</b>
-        <span>{archiveCount} ARCHIVE ITEMS{nearby.length ? ` · ${nearby.length} WIKIPEDIA REFERENCES` : " · MONUMENTS · ROUTES · FOLKLORE"}</span>
+        <p className="legend-title">
+          {archiveCount} mapped {archiveCount === 1 ? "item" : "items"}
+          {highlightIds && ` · ${highlightIds.size} in results`}
+        </p>
+        <ul>
+          {LEGEND.map((item) => <li key={item.kind}><span className={`legend-swatch ${item.kind}`} aria-hidden />{item.label}</li>)}
+          {center && <li><span className="legend-swatch center" aria-hidden />Searched place</li>}
+        </ul>
       </div>
     </div>
   );
