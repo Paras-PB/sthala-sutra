@@ -7,6 +7,7 @@ geoalchemy2>=0.15,<1
 celery[redis]>=5.4,<6
 python-multipart>=0.0.9
 pillow>=10,<12
+numpy>=1.26,<3
 pytesseract>=0.3.13
 pdf2image>=1.17
 pytest>=8,<10
