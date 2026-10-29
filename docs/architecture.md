@@ -99,7 +99,14 @@ After scoring, only the best passage per artifact is kept, and the list is sorte
 
 ### Geo search in the web app
 
-The API takes coordinates. Resolving "near IIT Gandhinagar" or "Near me" to coordinates is the web app's job (Wikipedia page coordinates or the browser's geolocation). The separate `/api/nearby` route handler queries Wikipedia's geosearch within 10 km of a page and filters the results to heritage landmarks by title, category and summary patterns; those results are displayed as references and never written to the archive.
+The API only takes coordinates; turning a place name into a point is done in the web app, in two steps.
+
+1. **Place lookup** (`frontend/src/app/api/nearby/route.ts`). When the query ends in "near &lt;place&gt;" (matched by `nearbyPlaceFromQuery` in `lib/archive-client.ts`), the route asks the MediaWiki API for that exact title with `redirects=1` and `prop=coordinates`, so "IIT Gandhinagar" follows its redirect to "Indian Institute of Technology Gandhinagar". If that page has no coordinates, it takes the best-ranked of the top five full-text search results that does. "Near me" skips this step and sends the browser's geolocation (`lat`, `lon`) instead.
+2. **Nearby references.** From that point the route runs `list=geosearch` with `gscoord` and a 10 km radius (the maximum the API allows), keeps up to 20 titles that look like landmarks, and drops transport stops and news events (titles containing "attack", "bombing", "riot", "massacre", "election" or "constituency", for example). It then fetches extracts, thumbnails and categories, keeps pages that look like heritage sites by title, category or summary, and puts World Heritage and protected-monument categories first, then sorts by distance.
+
+The page then calls `GET /api/search` with the query text, the resolved point and `radius_km=25`, and shows the archive matches (with `distance_km`) above the Wikipedia references. If the place is not found (404), the archive search runs without a radius and a notice says results are ranked by meaning only. "Near me" with an empty search box sends `q=heritage`, because the endpoint requires at least two characters.
+
+Wikipedia responses are cached by Next.js for an hour. The references are displayed and can be passed to the guide, but they are never written to the archive.
 
 ## Schema and migration parity
 
@@ -120,8 +127,8 @@ The migration `20261029120000_add_artifact_progress_and_preview.sql` uses `ADD C
 - **Upload validation** checks content type, magic bytes, extension, size, page count and pixel count, and never uses the supplied filename as a path. See [Upload](#upload-post-apiartifacts).
 - **Error-message hygiene.** Users see `ProcessingError` messages and fixed strings; exception text from drivers and libraries is logged only. The Next.js proxy and guide also return fixed error codes and messages rather than upstream error bodies.
 - **Proxy surface.** The archive proxy forwards only `accept`, `content-type`, `range` and `if-none-match` request headers and a short list of response headers, does not follow redirects, enforces the 25 MB limit itself and times out after 60 seconds.
-- **Guide prompt handling.** The system prompt treats record and Wikipedia text as untrusted evidence rather than instructions, and the route validates the artifact id as a UUID and the reference id as `wikipedia:<digits>` before fetching anything. It is rate limited to 10 questions per 10 minutes per client address, in memory.
-- **Containers.** The backend image runs as an unprivileged `app` user. Postgres and Redis bind to `127.0.0.1` on the host.
+- **Guide prompt handling.** The system prompt treats record and Wikipedia text as untrusted evidence rather than instructions, and the route validates the artifact id as a UUID and the reference id as `wikipedia:<digits>` before fetching anything. For a record it sends the text of all pages, truncated to 3,000 characters each for the original and the translation, plus one Wikipedia extract of at most 8,000 characters. It is rate limited to 10 questions per 10 minutes per client address, in memory.
+- **Containers.** The backend image runs as an unprivileged `app` user and the web image as the image's `node` user. Postgres and Redis bind to `127.0.0.1` on the host.
 - **CORS** allows only `CORS_ORIGINS`, without credentials. It matters only when `NEXT_PUBLIC_API_URL` makes the browser call the API directly.
 
 ### Known gaps

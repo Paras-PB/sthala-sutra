@@ -13,25 +13,27 @@ Records about a place (field notes, inscriptions, survey sheets, oral-history tr
 - **Translates** Hindi and Gujarati pages to English with a local NLLB-200 model; English text is kept as-is.
 - **Extracts** dates (including Gujarati and Devanagari digits), known place names and a heritage type from each page, and uses them to fill missing metadata.
 - **Indexes** every page as a 384-dimensional multilingual embedding in pgvector, so a query in one script finds records in another.
-- **Searches** with a hybrid score (semantic plus literal term match), filters by region, type and era, and an optional radius around a point.
-- **Maps** records, routes and folklore pins with PostGIS geometry on a MapLibre map.
-- **Shows progress** per page while a file is processed ("Reading page 2 of 5", "Translating page 2 of 5"), plus a preview image of the first page.
-- **Answers questions** about a record through an optional heritage guide (Google Gemini) that is restricted to the record's text and a matching Wikipedia article, and lists the sources it used.
-
-The web app (being finalised in parallel with this document) adds "&lt;topic&gt; near &lt;place&gt;" search with place names resolved through Wikipedia, a "Near me" search, filters populated from the data, a source reader with a page switcher that shows the original beside its translation along with extracted entities and a copyable citation, map highlighting of search results, and nearby Wikipedia references.
+- **Searches** with a hybrid score (semantic plus literal term match), filters by region, type and era, and an optional radius around a point. The filter options come from `/api/facets`, so they list only values that exist, and changing a filter re-runs the active search.
+- **Searches by place.** A query ending in "near &lt;place&gt;" resolves the place through Wikipedia: the exact title first, following redirects ("IIT Gandhinagar" leads to "Indian Institute of Technology Gandhinagar"), then the best search result that has coordinates. The archive is searched within 25 km of that point, and Wikipedia articles on heritage sites within 10 km are listed beside the archive matches. If the place cannot be found, results are ranked by meaning only and a notice says so.
+- **Searches near you.** "Near me" uses the browser's geolocation in the same way; with an empty search box it searches for "heritage" within 25 km. A declined permission shows a message suggesting a typed place name.
+- **Maps** records, routes and folklore pins with PostGIS geometry on a MapLibre map, with a legend and hover labels. During a search, records outside the results are dimmed and the searched place gets its own marker.
+- **Shows progress** on each card as a five-stage ledger (Queued, Reading, Translating, Indexing, Ready) with the worker's per-page progress line ("Reading page 2 of 5"). Cards show the rendered preview, else the image itself, else a PDF placeholder.
+- **Reads side by side.** The record reader has a folio switcher for multi-page records, the original text beside its English translation, the opening line in its original script, the dates, places and type found on each folio, and "Copy citation" (with the citation shown as selectable text if the browser blocks clipboard access).
+- **Answers questions** about a record or a Wikipedia reference through an optional heritage guide (Google Gemini). For a record it uses the text of all pages (up to 3,000 characters each of original and translation) and one matching Wikipedia article; it offers different suggested questions for records and references, and lists the sources it used.
+- **Uploads** by drag and drop or file picker, checking type and the 25 MB limit in the browser before sending.
 
 <!-- screenshots: added after the next live run -->
 
 ## A short tour
 
-After `docker compose up --build` and seeding (see [Quick start](#quick-start)), open http://localhost:3000 and try:
+After `docker compose up --build` and seeding (see [Quick start](#quick-start)), open http://localhost:3000. The first three queries are also listed under "Try" below the search box.
 
 | Try | What it shows |
 | --- | --- |
-| `stepwells near IIT Gandhinagar` | The place is resolved to coordinates through Wikipedia (including redirects), then the archive is searched within a radius of that point. The Adalaj and Dada Harir sample notes lie inside the API's default 25 km radius; Rani ki Vav in Patan does not. |
-| `રાણીની વાવ` (Gujarati script) | Cross-lingual search. The multilingual embedding places the Gujarati query close to the Hindi and English Rani ki Vav notes, and the literal term `વાવ` also matches Gujarati text. |
+| `stepwells near IIT Gandhinagar` | The place is resolved to coordinates through Wikipedia (via a redirect), then the archive is searched within 25 km of that point, with distances on each card and nearby Wikipedia references below. The Adalaj and Dada Harir sample notes lie inside that radius; Rani ki Vav in Patan does not. |
+| `રાણીની વાવ` (Gujarati script), or the specimen card at the top of the page | Cross-lingual search. The multilingual embedding places the Gujarati query close to the Hindi and English Rani ki Vav notes, and the literal term `વાવ` also matches Gujarati text. |
 | `Solanki-era temples` | Meaning over keywords: the English Modhera note calls the builder "Chaulukya", the Gujarati Modhera note says સોલંકી, and both are candidates alongside the note that literally says "Solanki-era". |
-| Open *Adalaj ni Vav · Gujarati sample field note* | The reader shows the OCR text in Gujarati script beside its machine translation, the extracted date (૧૪૯૯ normalised to 1499) and the detected place. |
+| Open *Adalaj ni Vav · Gujarati sample field note* | The reader shows the OCR text in Gujarati script beside its machine translation, the extracted date (૧૪૯૯ normalised to 1499), the detected place and a "Copy citation" button. |
 
 A scripted three-minute walkthrough is in [docs/demo.md](docs/demo.md).
 
@@ -93,6 +95,7 @@ The browser talks to the Next.js server, which proxies archive requests to FastA
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Web | Next.js 16, React 19, TypeScript | Server route handlers keep the API address and Gemini key off the client. |
+| Fonts | `next/font` with Playfair Display, DM Sans, DM Mono, Noto Serif Gujarati and Noto Serif Devanagari | Self-hosted at build time; the Indic faces load only when such text is on screen. |
 | Map | MapLibre GL with OpenStreetMap raster tiles | Open-source vector map renderer; no map API key needed. |
 | API | FastAPI, Pydantic, SQLAlchemy 2 | Typed request validation and response models; OpenAPI docs at `/docs`. |
 | Queue | Celery with Redis | OCR and translation take seconds to minutes per page and must not block requests. |
@@ -250,7 +253,9 @@ It covers upload signature checks and validation errors, the search reranker, fi
 | Workflow | Trigger | Steps |
 | --- | --- | --- |
 | `.github/workflows/backend.yml` | Push to `main` or pull request touching `backend/`, `ml/`, `supabase/` | Python 3.11, install test requirements, `compileall`, `pytest` |
-| `.github/workflows/frontend.yml` | Every push and pull request | Node 20, `npm ci`, `npm run typecheck`, `npm run build` |
+| `.github/workflows/frontend.yml` | Push to `main` or pull request touching `frontend/` | Node 22 (from `frontend/.nvmrc`), `npm ci`, `npm run typecheck`, `npm run build` |
+
+There are no frontend unit tests yet; the frontend check is the type check and a production build.
 
 ## Repository layout
 
@@ -262,7 +267,11 @@ backend/tests/            pytest suite (no models or database needed)
 ml/pipeline.py            OCR, language detection, translation, embeddings, entity extraction
 infra/db/Dockerfile       Postgres 16 + PostGIS 3.6 + pgvector image
 supabase/migrations/      Versioned schema migrations
-frontend/                 Next.js app, API proxy, nearby lookup and guide route handlers
+frontend/src/app/         Page, layout, styles and route handlers: api/archive (proxy), api/nearby, api/heritage-guide
+frontend/src/components/  Search hero, filters, cards, pipeline ledger, reader, upload, map, guide, modal
+frontend/src/lib/         http (fetch and error helpers), archive-api (server-side API address),
+                          archive-client (browser helpers and constants), wikipedia (MediaWiki client)
+frontend/src/types/       Shared TypeScript types for API responses
 data/                     Notes on the generated synthetic samples
 docs/                     Architecture notes and demo script
 scripts/demo.ps1          Demo steps printed in a terminal
